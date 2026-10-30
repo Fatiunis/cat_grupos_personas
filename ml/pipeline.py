@@ -19,6 +19,8 @@ DIAS_MINIMOS = 14
 # Horas que cruzan medianoche se miden desde el mediodía para que 23 h y 1 h queden cerca.
 HORAS_NOCHE = ["hora_ultimo_uso", "hora_inicio_sueno"]
 EXCLUIR = {"participante_id", "fecha", "arquetipo"}
+# Mismas categorías que Categories.ALL en la APK
+CATEGORIAS = ["social", "mensajeria", "juegos", "video", "productividad", "educacion", "finanzas", "compras", "otros"]
 
 
 def limpiar(diario):
@@ -27,7 +29,7 @@ def limpiar(diario):
     d = d[d.bateria_min_pct.between(0, 100)]
     for c in HORAS_NOCHE:
         d[c] = np.mod(d[c] - 12, 24)
-    cats = [c for c in d.columns if c.endswith("_min") and c not in ("pantalla_min", "uso_nocturno_min", "sesion_media_min")]
+    cats = [f"{c}_min" for c in CATEGORIAS if f"{c}_min" in d.columns]
     for c in cats:
         d[f"pct_{c[:-4]}"] = d[c] / d.pantalla_min.clip(lower=1)
     p = d[[f"pct_{c[:-4]}" for c in cats]].clip(1e-6, 1)
