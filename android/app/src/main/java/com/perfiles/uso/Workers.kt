@@ -76,6 +76,9 @@ class DailyWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params) 
                 conn.requestMethod = "POST"
                 conn.doOutput = true
                 conn.setRequestProperty("Content-Type", "application/json")
+                if (BuildConfig.INGEST_TOKEN.isNotEmpty()) {
+                    conn.setRequestProperty("Authorization", "Bearer ${BuildConfig.INGEST_TOKEN}")
+                }
                 conn.outputStream.use { it.write(f.readBytes()) }
                 if (conn.responseCode in 200..299) {
                     store.markSent(LocalDate.parse(f.nameWithoutExtension))

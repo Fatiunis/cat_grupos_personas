@@ -16,6 +16,8 @@ android {
         versionName = "0.1.0"
         // URL del backend de ingesta; vacío = solo guarda localmente
         buildConfigField("String", "INGEST_URL", "\"\"")
+        // Token del backend; se envía como Authorization: Bearer <token>
+        buildConfigField("String", "INGEST_TOKEN", "\"\"")
     }
 
     buildFeatures {
