@@ -4,7 +4,8 @@ const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v
 const color = (perfil) => css(`--s${(perfil % 8) + 1}`);
 const fmt = (x, d = 0) => (x == null || Number.isNaN(x) ? "—" : Number(x).toLocaleString("es", { maximumFractionDigits: d, minimumFractionDigits: d }));
 const pct = (x) => (x == null ? "—" : `${fmt(100 * x)}\u00a0%`);
-const hora = (h) => (h == null ? "—" : `${String(Math.floor(h)).padStart(2, "0")}:${String(Math.round((h % 1) * 60) % 60).padStart(2, "0")}`);
+// Las horas llegan continuas desde la medianoche del día (25.5 = 01:30); se muestran en reloj de 24 h
+const hora = (h) => (h == null ? "—" : ((h = ((h % 24) + 24) % 24), `${String(Math.floor(h)).padStart(2, "0")}:${String(Math.round((h % 1) * 60) % 60).padStart(2, "0")}`));
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 const estado = { participantes: [], orden: { col: "id", asc: true }, corrida: null, graficos: {} };

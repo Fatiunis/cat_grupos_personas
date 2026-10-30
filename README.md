@@ -38,6 +38,7 @@ Con 1.500 personas y dos semillas distintas, el pipeline recupera los arquetipos
 
 API FastAPI y dashboard web. Recibe los resúmenes diarios de la APK, guarda los datos y corre el pipeline de `ml/` desde la interfaz.
 
+- `DELETE /participantes/<id>` (mismo token): la APK lo llama al retirarse la persona; borra sus datos y responde 204.
 - `POST /ingest`: un objeto (o una lista) por persona y día, igual al JSON de `DailySummary.kt`. Un reenvío del mismo día lo reemplaza. Si `INGEST_TOKEN` está definido, exige `Authorization: Bearer <token>`.
 - Dashboard en `/`, con cuatro vistas:
   - **Resumen**: recolección en vivo, se refresca cada 30 s.
@@ -56,4 +57,4 @@ uvicorn app.main:app --reload    # abrir http://localhost:8000
 python -m pytest tests
 ```
 
-Despliegue sugerido, sin costo: PostgreSQL en [Neon](https://neon.tech) (plan gratuito de 0,5 GB; 200 personas por 2 meses ocupan unos 12 MB) y el backend en [Render](https://render.com) con `render.yaml`. El plan gratuito de Render se duerme tras 15 min sin tráfico; la APK reintenta, así que no se pierden días. Después se ponen `INGEST_URL` (`https://<servicio>.onrender.com/ingest`) e `INGEST_TOKEN` (el mismo valor del servidor) en `android/app/build.gradle.kts` y se vuelve a compilar la APK.
+Despliegue sugerido, sin costo: PostgreSQL en [Neon](https://neon.tech) (plan gratuito de 0,5 GB; 200 personas por 2 meses ocupan unos 12 MB) y el backend en [Render](https://render.com) con `render.yaml`. El plan gratuito de Render se duerme tras 15 min sin tráfico; la APK reintenta, así que no se pierden días. Después se compila la APK con `ingestUrl=https://<servicio>.onrender.com/ingest` e `ingestToken` igual al `INGEST_TOKEN` del servidor (ver la sección android/).

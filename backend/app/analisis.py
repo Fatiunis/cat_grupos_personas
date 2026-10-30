@@ -52,12 +52,6 @@ def cargar_diario(db: Session, incluir_excluidos=False):
     return pd.DataFrame(filas)
 
 
-def _mediana_hora(s):
-    """Mediana de una hora del día que puede cruzar medianoche (23 h y 1 h quedan cerca)."""
-    s = s.dropna()
-    return float(np.mod(np.median(np.mod(s - 12, 24)) + 12, 24)) if len(s) else None
-
-
 def medianas_por_persona(diario):
     d = diario.copy()
     cols = [c for c in METRICAS_LEGIBLES if c in d.columns]
@@ -66,7 +60,8 @@ def medianas_por_persona(diario):
     g = d.groupby("participante_id")
     out = pd.DataFrame(index=g.size().index)
     for c in cols:
-        out[c] = g[c].agg(_mediana_hora) if c.startswith("hora_") else g[c].median()
+        # Las horas llegan continuas desde la medianoche (25.5 = 01:30), así que la mediana sirve tal cual
+        out[c] = g[c].median()
     for c in CATEGORIAS:
         if f"{c}_min" in d.columns:
             out[f"pct_{c}"] = (d[f"{c}_min"] / d.pantalla_min.clip(lower=1)).groupby(d.participante_id).median()
