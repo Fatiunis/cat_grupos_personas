@@ -18,7 +18,10 @@ jobs:
           distribution: temurin
           java-version: 17
       - name: Compilar APK de depuración
-        run: ./gradlew assembleDebug --no-daemon
+        env:
+          INGEST_URL: ${{ secrets.INGEST_URL }}
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+        run: ./gradlew assembleDebug --no-daemon -PingestUrl="$INGEST_URL" -PingestToken="$INGEST_TOKEN"
       - uses: actions/upload-artifact@v4
         with:
           name: perfiles-uso-debug-apk

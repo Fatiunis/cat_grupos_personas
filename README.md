@@ -8,6 +8,9 @@ Prototipo de la APK en Kotlin (minSdk 28, Jetpack Compose, WorkManager).
 
 - Consentimiento con casilla opcional para contar notificaciones, guía de permisos (acceso a datos de uso, batería, notificaciones), pregunta diaria (cumplimiento del plan 1-5 y puntualidad) con recordatorio a las 21:00, vista de lo que se envía, pausa y retiro con borrado.
 - `DailySummary.kt` resume cada día en el teléfono: pantalla, desbloqueos, sesiones, horarios, uso nocturno, inicio de sueño, minutos por categoría, batería, cargas, red, apps, almacenamiento, bloqueo y parche de seguridad.
+- Un día va de 05:00 a 05:00 y las horas son continuas desde la medianoche (25.5 = 01:30 del día siguiente). El inicio de sueño se busca entre las 18:00 y las 14:00 del día siguiente, por eso cada día se envía después de las 15:00 del día siguiente.
+- Al retirarse, la app borra lo local y envía `DELETE <base>/participantes/<id>` al servidor.
+- `INGEST_URL` e `INGEST_TOKEN` se pasan al compilar (`-PingestUrl=... -PingestToken=...`); en CI salen de los secretos del repositorio con esos nombres.
 - `BatteryWorker` toma una muestra cada 15 min; `DailyWorker` arma los resúmenes pendientes y los envía a `INGEST_URL` (vacío = solo local).
 - Pendiente para la v2: pasos y lugares distintos (ubicación aproximada), y el backend de ingesta.
 
