@@ -1,0 +1,19 @@
+# Blueprint de Render para el backend (plan gratuito). La base de datos va aparte (Neon):
+# copia su cadena de conexión en DATABASE_URL desde el panel de Render.
+services:
+  - type: web
+    name: perfiles-backend
+    runtime: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /salud
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: INGEST_TOKEN
+        generateValue: true
+      - key: ADMIN_USER
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false
