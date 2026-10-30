@@ -16,9 +16,10 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import RobustScaler
 
 DIAS_MINIMOS = 14
-# Horas que cruzan medianoche se miden desde el mediodía para que 23 h y 1 h queden cerca.
-HORAS_NOCHE = ["hora_ultimo_uso", "hora_inicio_sueno"]
-EXCLUIR = {"participante_id", "fecha", "arquetipo"}
+# Las horas llegan continuas desde la medianoche del día (25.5 = 01:30 del día siguiente),
+# así que no hace falta ajustar las que cruzan medianoche.
+# Identificadores, metadatos del teléfono y respuestas diarias (que son etiqueta, no features).
+EXCLUIR = {"participante_id", "fecha", "arquetipo", "version_android", "q_cumplimiento"}
 # Mismas categorías que Categories.ALL en la APK
 CATEGORIAS = ["social", "mensajeria", "juegos", "video", "productividad", "educacion", "finanzas", "compras", "otros"]
 
@@ -26,9 +27,8 @@ CATEGORIAS = ["social", "mensajeria", "juegos", "video", "productividad", "educa
 def limpiar(diario):
     d = diario.copy()
     d = d[(d.pantalla_min >= 0) & (d.pantalla_min <= 24 * 60)]
-    d = d[d.bateria_min_pct.between(0, 100)]
-    for c in HORAS_NOCHE:
-        d[c] = np.mod(d[c] - 12, 24)
+    # Un día sin muestras de batería se conserva; solo se descartan valores imposibles
+    d = d[d.bateria_min_pct.isna() | d.bateria_min_pct.between(0, 100)]
     cats = [f"{c}_min" for c in CATEGORIAS if f"{c}_min" in d.columns]
     for c in cats:
         d[f"pct_{c[:-4]}"] = d[c] / d.pantalla_min.clip(lower=1)

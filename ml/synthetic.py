@@ -26,12 +26,12 @@ ARQUETIPOS = {
         pasos=6000, lugares=4.0, horas_casa=11),
     "social_intenso": dict(
         pantalla=420, desbloqueos=140, social=0.55, mensajeria=0.20, juegos=0.03, video=0.12,
-        productividad=0.03, educacion=0.02, primer_uso=8.0, ultimo_uso=0.8, noche=40,
+        productividad=0.03, educacion=0.02, primer_uso=8.0, ultimo_uso=24.8, noche=40,
         regularidad=0.55, bateria_baja=0.40, cargas=2.2, apps=95, notificaciones=300,
         pasos=5000, lugares=3.5, horas_casa=14),
     "nocturno_irregular": dict(
         pantalla=360, desbloqueos=110, social=0.40, mensajeria=0.15, juegos=0.10, video=0.20,
-        productividad=0.03, educacion=0.02, primer_uso=10.5, ultimo_uso=3.0, noche=120,
+        productividad=0.03, educacion=0.02, primer_uso=10.5, ultimo_uso=27.0, noche=120,
         regularidad=0.30, bateria_baja=0.60, cargas=2.0, apps=90, notificaciones=180,
         pasos=3500, lugares=2.0, horas_casa=17),
     "usuario_minimo": dict(
@@ -41,16 +41,18 @@ ARQUETIPOS = {
         pasos=8000, lugares=3.0, horas_casa=12),
     "gamer": dict(
         pantalla=300, desbloqueos=70, social=0.10, mensajeria=0.10, juegos=0.50, video=0.10,
-        productividad=0.02, educacion=0.02, primer_uso=9.0, ultimo_uso=1.5, noche=60,
+        productividad=0.02, educacion=0.02, primer_uso=9.0, ultimo_uso=25.5, noche=60,
         regularidad=0.50, bateria_baja=0.45, cargas=2.0, apps=80, notificaciones=100,
         pasos=3000, lugares=1.8, horas_casa=18),
 }
 CATEGORIAS = ["social", "mensajeria", "juegos", "video", "productividad", "educacion"]
 
 
-def _hora(h):
-    """Lleva una hora a [0, 24)."""
-    return np.mod(h, 24.0)
+# Las horas son continuas desde la medianoche del día, como en la APK:
+# el día va de 05:00 a 05:00, así que el último uso puede ir de 5 a 29 h
+# y el inicio de sueño (medido de 18:00 a 14:00 del día siguiente) de 18 a 38 h.
+def _hora(h, minimo=5.0, maximo=29.0):
+    return float(np.clip(h, minimo, maximo))
 
 
 def simular_persona(rng, pid, arquetipo, dias, inicio):
@@ -77,7 +79,7 @@ def simular_persona(rng, pid, arquetipo, dias, inicio):
         primer = _hora(base["primer_uso"] + (1.2 if finde else 0) + rng.normal(0, jitter_h))
         ultimo = _hora(base["ultimo_uso"] + (0.8 if finde else 0) + rng.normal(0, jitter_h))
         noche = max(0.0, base["noche"] * nivel * rng.lognormal(0, 0.6) * (1.5 if finde else 1))
-        inicio_sueno = _hora(ultimo + rng.uniform(0.1, 0.6))
+        inicio_sueno = _hora(ultimo + rng.uniform(0.1, 0.6), 18.0, 38.0)
         bajas = rng.poisson(base["bateria_baja"] * (2 - reg))
         bateria_min = float(np.clip(rng.normal(8 if bajas else 35, 10), 1, 95))
         mix_dia = rng.dirichlet(mezcla * 200)
