@@ -1,0 +1,74 @@
+# Flujo completo en local: Postgres + backend/dashboard + teléfonos simulados.
+#
+#   cd integracion
+#   docker compose up --build              # dashboard en http://localhost:8000
+#   docker compose run --rm pruebas        # pruebas de contrato y end-to-end
+#   docker compose down -v                 # apaga y borra la base
+#
+# Variables opcionales (archivo .env junto a este): INGEST_TOKEN, ADMIN_PASSWORD,
+# PERSONAS, HISTORIA, SEGUNDOS_POR_DIA, ALTAS_POR_DIA.
+name: perfiles
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: perfiles
+      POSTGRES_PASSWORD: perfiles
+      POSTGRES_DB: perfiles
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U perfiles"]
+      interval: 2s
+      retries: 30
+
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://perfiles:perfiles@db:5432/perfiles
+      INGEST_TOKEN: ${INGEST_TOKEN:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      PORT: "8000"
+    ports: ["8000:8000"]
+    depends_on:
+      db: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/salud')"]
+      interval: 3s
+      retries: 40
+
+  # Teléfonos con la APK: primero envían la historia y después un día simulado cada
+  # SEGUNDOS_POR_DIA segundos, así el dashboard se va llenando en vivo.
+  simulador:
+    build: ./simulador
+    command:
+      - --url=http://backend:8000/ingest
+      - --token=${INGEST_TOKEN:-}
+      - --personas=${PERSONAS:-40}
+      - --historia=${HISTORIA:-16}
+      - --en-vivo
+      - --segundos-por-dia=${SEGUNDOS_POR_DIA:-30}
+      - --altas-por-dia=${ALTAS_POR_DIA:-2}
+      - --malformados
+    depends_on:
+      backend: {condition: service_healthy}
+
+  pruebas:
+    profiles: [pruebas]
+    build:
+      context: ..
+      dockerfile: integracion/tests/Dockerfile
+    environment:
+      INGEST_URL: http://backend:8000/ingest
+      BACKEND_URL: http://backend:8000
+      INGEST_TOKEN: ${INGEST_TOKEN:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      DATABASE_URL: postgresql://perfiles:perfiles@db:5432/perfiles
+    depends_on:
+      backend: {condition: service_healthy}
+
+volumes:
+  pgdata:
