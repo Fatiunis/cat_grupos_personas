@@ -33,3 +33,28 @@ Los datos sintéticos solo prueban el pipeline; el modelo final se entrena con d
 ## Resultado con datos sintéticos (2026-10-30)
 
 Con 1.500 personas y dos semillas distintas, el pipeline recupera los arquetipos plantados con ARI de 0,85 y 0,94 (meta 0,7). La regla automática tiende a elegir más perfiles de los plantados (divide un arquetipo en dos), así que con datos reales hay que revisar la tabla de selección y fijar `--k`.
+
+## backend/
+
+API FastAPI y dashboard web. Recibe los resúmenes diarios de la APK, guarda los datos y corre el pipeline de `ml/` desde la interfaz.
+
+- `DELETE /participantes/<id>` (mismo token): la APK lo llama al retirarse la persona; borra sus datos y responde 204.
+- `POST /ingest`: un objeto (o una lista) por persona y día, igual al JSON de `DailySummary.kt`. Un reenvío del mismo día lo reemplaza. Si `INGEST_TOKEN` está definido, exige `Authorization: Bearer <token>`.
+- Dashboard en `/`, con cuatro vistas:
+  - **Resumen**: recolección en vivo, se refresca cada 30 s.
+  - **Participantes**: búsqueda, detalle por persona, excluir del análisis, notas, BFI-2 y borrado por retiro.
+  - **Perfiles**: tarjetas con nombre editable, mapa PCA, BFI-2 por perfil y tabla de rasgos.
+  - **Análisis**: correr el pipeline con k automático o fijo, subir el CSV del BFI-2 y exportar a CSV.
+- Variables de entorno: `DATABASE_URL` (PostgreSQL; vacío = SQLite local), `INGEST_TOKEN`, `ADMIN_USER` y `ADMIN_PASSWORD` (vacío = dashboard sin clave, solo para uso local).
+
+Prueba local con datos sintéticos:
+
+```
+pip install -r backend/requirements.txt
+cd backend
+python cargar_sinteticos.py --personas 400 --corrida
+uvicorn app.main:app --reload    # abrir http://localhost:8000
+python -m pytest tests
+```
+
+Despliegue sugerido, sin costo: PostgreSQL en [Neon](https://neon.tech) (plan gratuito de 0,5 GB; 200 personas por 2 meses ocupan unos 12 MB) y el backend en [Render](https://render.com) con `render.yaml`. El plan gratuito de Render se duerme tras 15 min sin tráfico; la APK reintenta, así que no se pierden días. Después se compila la APK con `ingestUrl=https://<servicio>.onrender.com/ingest` e `ingestToken` igual al `INGEST_TOKEN` del servidor (ver la sección android/).

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perfiles de uso</title>
+<link rel="stylesheet" href="/static/estilos.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+<header class="barra">
+  <h1>Perfiles de uso</h1>
+  <nav id="pestanas" role="tablist">
+    <button role="tab" data-vista="resumen" aria-selected="true">Resumen</button>
+    <button role="tab" data-vista="participantes">Participantes</button>
+    <button role="tab" data-vista="perfiles">Perfiles</button>
+    <button role="tab" data-vista="analisis">Análisis</button>
+  </nav>
+</header>
+
+<main>
+  <div id="aviso" class="aviso" hidden></div>
+
+  <section id="vista-resumen" class="vista">
+    <div class="cabecera-vista">
+      <h2>Recolección</h2>
+      <span class="muted" id="actualizado"></span>
+    </div>
+    <div class="tiles" id="tiles-resumen"></div>
+    <div class="grid2">
+      <figure class="tarjeta"><figcaption>Personas que enviaron datos por día</figcaption><div class="lienzo"><canvas id="g-personas"></canvas></div></figure>
+      <figure class="tarjeta"><figcaption>Minutos de pantalla por día (mediana)</figcaption><div class="lienzo"><canvas id="g-pantalla"></canvas></div></figure>
+      <figure class="tarjeta"><figcaption>Días con la pregunta diaria respondida</figcaption><div class="lienzo"><canvas id="g-respuesta"></canvas></div></figure>
+      <div class="tarjeta" id="perfiles-mini"></div>
+    </div>
+  </section>
+
+  <section id="vista-participantes" class="vista" hidden>
+    <div class="cabecera-vista">
+      <h2>Participantes</h2>
+      <div class="filtros">
+        <input id="buscar" type="search" placeholder="Buscar ID" aria-label="Buscar ID">
+        <select id="filtro-perfil" aria-label="Filtrar por perfil"><option value="">Todos los perfiles</option></select>
+        <select id="filtro-estado" aria-label="Filtrar por estado">
+          <option value="">Todos</option><option value="activo">Activos</option>
+          <option value="inactivo">Sin envíos recientes</option><option value="excluido">Excluidos</option>
+        </select>
+      </div>
+    </div>
+    <div class="tabla-envoltorio">
+      <table id="tabla-participantes">
+        <thead><tr>
+          <th data-col="id">ID</th><th data-col="dias" class="num">Días</th><th data-col="cobertura" class="num">Cobertura</th>
+          <th data-col="ultimo_envio">Último envío</th><th data-col="perfil">Perfil</th><th data-col="prob" class="num">Confianza</th>
+          <th data-col="bfi2" class="num">BFI-2</th><th data-col="excluido">Estado</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="muted" id="conteo-participantes"></p>
+  </section>
+
+  <section id="vista-perfiles" class="vista" hidden>
+    <div class="cabecera-vista">
+      <h2>Perfiles</h2>
+      <select id="sel-corrida" aria-label="Corrida"></select>
+    </div>
+    <div class="tiles" id="tiles-perfiles"></div>
+    <div class="tarjetas-perfil" id="tarjetas-perfil"></div>
+    <div class="grid2">
+      <figure class="tarjeta">
+        <figcaption>Mapa de participantes (2 primeras componentes PCA)</figcaption>
+        <div class="filtros"><select id="resaltar" aria-label="Resaltar perfil"></select></div>
+        <div class="lienzo alto"><canvas id="g-mapa"></canvas></div>
+        <p class="muted" id="nota-mapa"></p>
+      </figure>
+      <figure class="tarjeta">
+        <figcaption>Responsabilidad media (BFI-2) por perfil</figcaption>
+        <div class="lienzo alto"><canvas id="g-bfi"></canvas></div>
+        <p class="muted" id="nota-bfi"></p>
+      </figure>
+    </div>
+    <figure class="tarjeta">
+      <figcaption>Qué distingue a cada perfil (desviaciones respecto al promedio)</figcaption>
+      <div class="tabla-envoltorio"><table id="tabla-z"></table></div>
+      <p class="muted">Azul = por encima del promedio, rojo = por debajo. Valores en desviaciones estándar.</p>
+    </figure>
+    <figure class="tarjeta" id="bloque-cruce" hidden>
+      <figcaption>Perfiles contra los arquetipos plantados (solo datos sintéticos)</figcaption>
+      <div class="tabla-envoltorio"><table id="tabla-cruce"></table></div>
+    </figure>
+  </section>
+
+  <section id="vista-analisis" class="vista" hidden>
+    <h2>Análisis</h2>
+    <div class="grid2">
+      <div class="tarjeta">
+        <h3>Nueva corrida del pipeline</h3>
+        <p class="muted">Usa todos los participantes no excluidos que tengan al menos 14 días.</p>
+        <form id="form-corrida" class="fila">
+          <label>Número de perfiles
+            <select name="k"><option value="">Automático</option><option>2</option><option>3</option><option>4</option>
+              <option>5</option><option>6</option><option>7</option><option>8</option></select>
+          </label>
+          <button type="submit" class="primario">Correr análisis</button>
+        </form>
+      </div>
+      <div class="tarjeta">
+        <h3>Cargar resultados del BFI-2</h3>
+        <p class="muted">CSV con columnas <code>participante_id</code> y <code>bfi2_responsabilidad</code>.</p>
+        <form id="form-etiquetas" class="fila">
+          <input type="file" name="archivo" accept=".csv,text/csv" required>
+          <button type="submit">Subir</button>
+        </form>
+        <p id="res-etiquetas" class="muted"></p>
+      </div>
+    </div>
+    <div class="tarjeta">
+      <h3>Corridas</h3>
+      <div class="tabla-envoltorio"><table id="tabla-corridas"></table></div>
+    </div>
+    <div class="grid2" id="graficos-k">
+      <figure class="tarjeta"><figcaption>BIC por número de perfiles (menor es mejor)</figcaption><div class="lienzo"><canvas id="g-bic"></canvas></div></figure>
+      <figure class="tarjeta"><figcaption>Estabilidad por número de perfiles (meta ≥ 0,85)</figcaption><div class="lienzo"><canvas id="g-estab"></canvas></div></figure>
+    </div>
+    <div class="tarjeta">
+      <h3>Exportar</h3>
+      <p><a href="/api/exportar/dias.csv">Todos los días (CSV)</a> · <a href="/api/exportar/perfiles.csv" id="link-perfiles">Perfiles de la corrida actual (CSV)</a></p>
+    </div>
+  </section>
+</main>
+
+<dialog id="detalle">
+  <form method="dialog" class="cerrar"><button aria-label="Cerrar">✕</button></form>
+  <div id="detalle-cuerpo"></div>
+</dialog>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
