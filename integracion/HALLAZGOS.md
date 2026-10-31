@@ -23,7 +23,7 @@ Estado: los 7 puntos anteriores quedaron corregidos en eb28a90 (APK) y el simula
 
 Corrido con docker-compose (Postgres 16) y el simulador: 21 de 23 pruebas pasan, incluidas ingesta, reenvíos idempotentes, listas de días, 16 envíos simultáneos del mismo participante, días sin batería, campos nuevos, malformados (422), token de ingesta, retiro con DELETE (204 y luego 404), token del retiro, clave del dashboard y conteos en vivo de `/api/resumen`.
 
-Estado: 8 corregido en 2ac2f98; 9 y 10 corregidos en c0f7947 (422 para ids inválidos, 410 para envíos de personas retiradas). Con eso pasan 23 de 24 pruebas.
+Estado: 8 corregido en 2ac2f98; 9 y 10 en c0f7947 (422 para ids inválidos, 410 para envíos de personas retiradas); 11 en 6bf5d81. Con 6bf5d81 pasan las 24 pruebas.
 
 11. **ARI con arquetipos parciales.** Si solo algunos participantes traen `arquetipo` (datos sintéticos cargados con `cargar_sinteticos.py` y después datos reales), `analisis.py:147` deja NaN en `verdad` y la corrida falla con "Input contains NaN". Sugerencia: calcular el ARI solo sobre `verdad.notna()`.
 
