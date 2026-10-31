@@ -44,20 +44,13 @@ def dia(pid, fecha="2026-03-02", **extra):
 
 def participante(pid):
     filas = api("/api/participantes")
-    filas = filas.get("participantes", filas) if isinstance(filas, dict) else filas
-    return next((f for f in filas if f.get("participante_id") == pid), None)
+    return next((f for f in filas if f["id"] == pid), None)
 
 
 def dias_en_db(pid):
-    """Cuenta en Postgres las filas que mencionan al participante, sin suponer el esquema."""
     psycopg = pytest.importorskip("psycopg")
-    url = DB.replace("postgresql+psycopg://", "postgresql://")
-    with psycopg.connect(url) as c:
-        tablas = [t for (t,) in c.execute(
-            "select table_name from information_schema.columns "
-            "where table_schema='public' and column_name='participante_id'")]
-        return {t: c.execute(f'select count(*) from "{t}" where participante_id::text = %s', (pid,)).fetchone()[0]
-                for t in tablas}
+    with psycopg.connect(DB.replace("postgresql+psycopg://", "postgresql://")) as c:
+        return c.execute("select count(*) from dias where participante_id = %s", (pid,)).fetchone()[0]
 
 
 def test_salud():
@@ -79,7 +72,7 @@ def test_reenvio_es_idempotente():
     assert post(dia(pid, pantalla_min=200.0)).status_code == 200
     assert participante(pid)["dias"] == 1
     if DB:
-        assert max(dias_en_db(pid).values()) == 1
+        assert dias_en_db(pid) == 1
 
 
 def test_lista_de_dias():
@@ -113,6 +106,57 @@ def test_campo_nuevo_de_otra_version_de_la_app():
 ])
 def test_rechaza_malformados(payload):
     assert 400 <= post(payload).status_code < 500
+
+
+@pytest.mark.parametrize("pid", ["x" * 200, 12345])
+def test_id_raro_no_da_500(pid):
+    """Un id inesperado debe rechazarse con 4xx o guardarse, nunca romper el servidor."""
+    assert post(dia(pid)).status_code < 500
+
+
+def test_lista_con_un_dia_malo_no_guarda_nada():
+    pid = str(uuid.uuid4())
+    assert post([dia(pid), {"participante_id": pid}]).status_code == 422
+    assert participante(pid) is None
+
+
+def test_reenvios_simultaneos():
+    """Dos teléfonos nuevos que envían a la vez (o un reintento solapado) no deben dar 500."""
+    from concurrent.futures import ThreadPoolExecutor
+    pid = str(uuid.uuid4())
+    with ThreadPoolExecutor(8) as ex:
+        codigos = list(ex.map(lambda i: post(dia(pid, f"2026-03-{i % 3 + 1:02d}")).status_code, range(16)))
+    assert all(c == 200 for c in codigos), codigos
+    assert participante(pid)["dias"] == 3
+
+
+def retiro(pid, token=TOKEN):
+    """Lo que hace WithdrawWorker: DELETE <INGEST_URL sin /ingest>/participantes/<id>."""
+    base = INGEST.rstrip("/").removesuffix("/ingest")
+    h = {"Authorization": f"Bearer {token}"} if token else {}
+    return requests.delete(f"{base}/participantes/{pid}", headers=h, timeout=30)
+
+
+def test_retiro_borra_todo_y_es_reintentable():
+    pid = str(uuid.uuid4())
+    assert post([dia(pid, "2026-03-02"), dia(pid, "2026-03-03")]).status_code == 200
+    r = retiro(pid)
+    assert 200 <= r.status_code < 300, r.text
+    assert participante(pid) is None
+    if DB:
+        assert dias_en_db(pid) == 0
+    assert retiro(pid).status_code == 404  # la APK lo toma como éxito y deja de reintentar
+    # Un día que estaba subiéndose cuando la persona se retiró no recrea al participante
+    assert post(dia(pid, "2026-03-04")).status_code == 410
+    assert participante(pid) is None
+
+
+@pytest.mark.skipif(not TOKEN, reason="INGEST_TOKEN no definido")
+def test_retiro_exige_token():
+    pid = str(uuid.uuid4())
+    assert post(dia(pid)).status_code == 200
+    assert retiro(pid, token="").status_code in (401, 403)
+    assert participante(pid) is not None
 
 
 @pytest.mark.skipif(not TOKEN, reason="INGEST_TOKEN no definido")
@@ -150,15 +194,25 @@ def test_pipeline_con_lo_que_quedo_en_la_base():
                     "--con-arquetipo"], check=True, stdout=subprocess.DEVNULL)
     url = DB.replace("postgresql+psycopg://", "postgresql://")
     with psycopg.connect(url) as c:
-        tablas = [t for (t,) in c.execute(
-            "select table_name from information_schema.columns "
-            "where table_schema='public' and column_name in ('datos','payload','json') group by table_name")]
-        assert tablas, "no encontré la columna JSON con los días"
-        t = tablas[0]
-        col = c.execute("select column_name from information_schema.columns where table_name=%s "
-                        "and column_name in ('datos','payload','json')", (t,)).fetchone()[0]
-        filas = [r[0] if isinstance(r[0], dict) else json.loads(r[0]) for r in c.execute(f'select "{col}" from "{t}"')]
+        filas = [dict(participante_id=pid, fecha=f.isoformat(), **(d if isinstance(d, dict) else json.loads(d)))
+                 for pid, f, d in c.execute("select participante_id, fecha, datos from dias")]
     diario = pd.DataFrame(filas)
     diario = diario[diario.get("arquetipo").notna()] if "arquetipo" in diario else diario
     feats, _ = pipeline.features_por_persona(diario)
     assert len(feats) >= 100
+
+
+def test_corrida_de_perfiles_desde_el_dashboard():
+    """El botón de nueva corrida termina en 'lista' con lo que hay en la base (va al final:
+    para entonces ya hay días de otras pruebas, incluido un campo nuevo de otra versión)."""
+    import time
+    auth = ("admin", ADMIN) if ADMIN else None
+    r = requests.post(BACKEND + "/api/corridas", json={}, auth=auth, timeout=30)
+    assert r.status_code == 200, r.text
+    cid = r.json()["id"]
+    for _ in range(120):
+        c = api(f"/api/corridas/{cid}")
+        if c["estado"] != "corriendo":
+            break
+        time.sleep(1)
+    assert c["estado"] == "lista", c.get("error")

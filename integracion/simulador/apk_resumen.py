@@ -1,4 +1,4 @@
-"""Copia en Python del cálculo de DailySummary.kt y Workers.kt (BatteryWorker).
+"""Copia en Python del cálculo de DailySummary.kt (versión de eb28a90) y Workers.kt (BatteryWorker).
 
 Recibe los mismos insumos que tiene la APK en el teléfono (eventos de UsageStatsManager,
 muestras de batería cada 15 min, horas de notificaciones, apps instaladas) y arma el
@@ -45,11 +45,19 @@ def round1(x):
     return math.floor(x * 10 + 0.5) / 10.0
 
 
+def _ms(d, hora, zona):
+    return int(datetime(d.year, d.month, d.day, tzinfo=zona).replace(hour=hora).timestamp() * 1000)
+
+
+DAY_START_HOUR = 5
+
+
 def resumen_diario(t: Telefono, d: date) -> dict:
+    """El día va de las 05:00 de `d` a las 05:00 del siguiente; horas desde la medianoche de `d`."""
     zona = t.zona
-    start = int(datetime(d.year, d.month, d.day, tzinfo=zona).timestamp() * 1000)
     d1 = d + timedelta(days=1)
-    end = int(datetime(d1.year, d1.month, d1.day, tzinfo=zona).timestamp() * 1000)
+    midnight = _ms(d, 0, zona)
+    start, end = _ms(d, DAY_START_HOUR, zona), _ms(d1, DAY_START_HOUR, zona)
     out = {
         "participante_id": t.participante_id,
         "fecha": d.isoformat(),
@@ -57,8 +65,9 @@ def resumen_diario(t: Telefono, d: date) -> dict:
         "modelo_telefono": t.modelo,
         "version_android": t.version_android,
     }
-    _uso(t, start, end, out)
-    _bateria(t, start, end, out)
+    _uso(t, midnight, start, end, out)
+    _sueno(t, d, midnight, out)
+    _bateria(t, midnight, start, end, out)
     _dispositivo(t, start, end, out)
     if t.consiente_notificaciones:
         out["notificaciones"] = sum(1 for ts in t.notificaciones if start <= ts < end)
@@ -68,17 +77,14 @@ def resumen_diario(t: Telefono, d: date) -> dict:
     return out
 
 
-def _hora(ts, zona):
-    x = datetime.fromtimestamp(ts / 1000, zona)
-    return x.hour + x.minute / 60.0
+def _horas(midnight, ts):
+    return (ts - midnight) / 3_600_000.0
 
 
-def _uso(t, start, end, out):
-    # usm.queryEvents(start, end) solo devuelve eventos dentro del intervalo
-    eventos = [e for e in t.eventos if start <= e[0] < end]
-    sesiones, screen_on, unlocks = [], None, 0
-    fg_start, cat_ms, last_activity_end = {}, {}, None
-    for ts, tipo, pkg in eventos:
+def _leer_pantalla(t, desde, hasta):
+    # usm.queryEvents(from, to) solo devuelve eventos dentro del intervalo
+    sesiones, screen_on, unlocks, fg_start, cat_ms = [], None, 0, {}, {}
+    for ts, tipo, pkg in (e for e in t.eventos if desde <= e[0] < hasta):
         if tipo == SCREEN_INTERACTIVE:
             screen_on = ts
         elif tipo == SCREEN_NON_INTERACTIVE:
@@ -94,36 +100,39 @@ def _uso(t, start, end, out):
             if s is not None:
                 cat = t.categoria_de.get(pkg, "otros")
                 cat_ms[cat] = cat_ms.get(cat, 0) + (ts - s)
-                last_activity_end = ts
     if screen_on is not None:
-        sesiones.append((screen_on, end))
+        sesiones.append((screen_on, hasta))
+    return sesiones, unlocks, cat_ms
 
+
+def _uso(t, midnight, start, end, out):
+    sesiones, unlocks, cat_ms = _leer_pantalla(t, start, end)
     screen_min = sum(b - a for a, b in sesiones) / 60000.0
     out["pantalla_min"] = round1(screen_min)
     out["desbloqueos"] = unlocks
     out["sesion_media_min"] = 0.0 if not sesiones else round1(screen_min / len(sesiones))
     out["sesiones_cortas"] = sum(1 for a, b in sesiones if b - a < 30_000)
-    out["hora_primer_uso"] = round1(_hora(sesiones[0][0], t.zona)) if sesiones else None
-    ultimo = last_activity_end if last_activity_end is not None else (sesiones[-1][1] if sesiones else None)
-    out["hora_ultimo_uso"] = round1(_hora(ultimo, t.zona)) if ultimo is not None else None
-
-    night_end = start + 5 * 3_600_000
-    night_ms = sum(max(0, min(b, night_end) - a) for a, b in sesiones)
+    out["hora_primer_uso"] = round1(_horas(midnight, sesiones[0][0])) if sesiones else None
+    out["hora_ultimo_uso"] = round1(_horas(midnight, sesiones[-1][1])) if sesiones else None
+    night_start = midnight + 24 * 3_600_000
+    night_ms = sum(max(0, min(b, end) - max(a, night_start)) for a, b in sesiones)
     out["uso_nocturno_min"] = round1(night_ms / 60000.0)
-
-    best_gap, best_start, prev_end = 0, None, start
-    for a, b in sesiones + [(end, end)]:
-        gap = a - prev_end
-        if gap > best_gap:
-            best_gap, best_start = gap, prev_end
-        prev_end = max(prev_end, b)
-    out["hora_inicio_sueno"] = round1(_hora(best_start, t.zona)) if best_gap >= 4 * 3_600_000 else None
-
     for c in CATEGORIAS:
         out[f"{c}_min"] = round1(cat_ms.get(c, 0) / 60000.0)
 
 
-def _bateria(t, start, end, out):
+def _sueno(t, d, midnight, out):
+    desde, hasta = _ms(d, 18, t.zona), _ms(d + timedelta(days=1), 14, t.zona)
+    best_gap, best_start, prev_end = 0, desde, desde
+    for a, b in _leer_pantalla(t, desde, hasta)[0] + [(hasta, hasta)]:
+        gap = a - prev_end
+        if gap > best_gap:
+            best_gap, best_start = gap, prev_end
+        prev_end = max(prev_end, b)
+    out["hora_inicio_sueno"] = round1(_horas(midnight, best_start)) if best_gap >= 4 * 3_600_000 else None
+
+
+def _bateria(t, midnight, start, end, out):
     filas = [r for r in t.bateria if start <= r[0] < end]
     if not filas:
         return
@@ -132,7 +141,7 @@ def _bateria(t, start, end, out):
     out["veces_bateria_baja"] = sum(1 for a, b in zip(niveles, niveles[1:]) if a >= 15 and b < 15)
     enchufado = [r[2] for r in filas]
     out["cargas"] = sum(1 for a, b in zip(enchufado, enchufado[1:]) if not a and b)
-    out["carga_nocturna"] = 1 if any(r[2] and _hora(r[0], t.zona) < 6 for r in filas) else 0
+    out["carga_nocturna"] = 1 if any(r[2] and _horas(midnight, r[0]) >= 22 for r in filas) else 0
     out["wifi_min"] = sum(1 for r in filas if r[3] == "wifi") * 15
     out["datos_moviles_min"] = sum(1 for r in filas if r[3] == "movil") * 15
 

@@ -13,10 +13,18 @@ docker compose up --build
 - El servicio `simulador` arranca 40 teléfonos con 16 días de historia y después avanza
   un día simulado cada 30 s, con 2 personas nuevas por día. Lo que envía se ve con
   `docker compose logs -f simulador`.
+- En vivo el reloj simulado corre más rápido que el real, así que después de un rato
+  llegan fechas futuras. Es solo para ver el flujo; para datos realistas usa `--historia`.
 - Postgres queda en `localhost:5432` (usuario, clave y base: `perfiles`).
 - Se ajusta con un archivo `.env` junto al compose: `PERSONAS`, `HISTORIA`,
   `SEGUNDOS_POR_DIA`, `ALTAS_POR_DIA`, `INGEST_TOKEN`, `ADMIN_PASSWORD`.
 - `docker compose down -v` apaga todo y borra la base.
+
+## Si Docker Hub o pip fallan detrás de un proxy
+
+`docker compose build` necesita bajar `python:3.12-slim`, `postgres:16-alpine` y paquetes
+de PyPI. Detrás de un proxy con certificado propio, crea una imagen base local con ese
+certificado y etiquétala como `python:3.12-slim` antes de construir.
 
 ## Pruebas
 

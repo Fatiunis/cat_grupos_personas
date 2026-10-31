@@ -1,7 +1,7 @@
 """Simulador de teléfonos con la APK instalada.
 
-Reproduce lo que hace DailyWorker: cada día, alrededor de las 03:00, arma el resumen de
-los días pendientes (hasta 6 atrás), los encola y los envía uno por uno con POST a
+Reproduce lo que hace DailyWorker: cada día, alrededor de las 15:00, arma el resumen de
+los días ya cerrados (después de las 14:00 del día siguiente, hasta 6 atrás), los encola y los envía uno por uno con POST a
 INGEST_URL. Si no recibe 2xx, el día queda en la cola y se reintenta al día siguiente.
 
 Ejemplos:
@@ -123,7 +123,7 @@ def main():
     def un_dia(dia, pausa_total=0.0):
         for a in apks:
             a.persona.vivir_dia(dia)
-        hoy = (dia + timedelta(days=1)).date()
+        hoy = dia.date()  # el worker corre a las 15:00, con la mañana de hoy ya vivida
         orden = list(apks)
         random.shuffle(orden)
         for a in orden:
