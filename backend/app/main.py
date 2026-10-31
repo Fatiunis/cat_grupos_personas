@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from .analisis import cargar_diario, ejecutar_corrida
 from .db import Base, SessionLocal, engine, get_db
-from .models import Asignacion, Corrida, Dia, Participante, ahora
+from .models import Asignacion, Corrida, Dia, Participante, Retirado, ahora
 
 Base.metadata.create_all(engine)
 app = FastAPI(title="Perfiles de uso")
@@ -54,6 +54,7 @@ def _borrar(db, pid):
     db.execute(delete(Asignacion).where(Asignacion.participante_id == pid))
     db.execute(delete(Dia).where(Dia.participante_id == pid))
     db.execute(delete(Participante).where(Participante.id == pid))
+    db.merge(Retirado(id=pid))
     db.commit()
 
 
@@ -62,12 +63,15 @@ def ingest(cuerpo: dict | list[dict], db: Session = Depends(get_db)):
     dias = cuerpo if isinstance(cuerpo, list) else [cuerpo]
     for d in dias:
         pid, fecha = d.get("participante_id"), d.get("fecha")
-        if not pid or not fecha:
-            raise HTTPException(422, "Cada día necesita participante_id y fecha")
+        if not isinstance(pid, str) or not 1 <= len(pid) <= 64:
+            raise HTTPException(422, "participante_id debe ser texto de 1 a 64 caracteres")
         try:
             fecha = date.fromisoformat(fecha)
-        except ValueError:
-            raise HTTPException(422, f"Fecha inválida: {fecha}")
+        except (TypeError, ValueError):
+            raise HTTPException(422, f"Fecha inválida: {fecha!r}")
+        if db.get(Retirado, pid):
+            # Un envío que estaba en curso cuando la persona se retiró no la vuelve a crear
+            raise HTTPException(410, "Participante retirado")
         p = db.get(Participante, pid) or Participante(id=pid)
         p.ultimo_envio = ahora()
         db.add(p)

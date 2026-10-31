@@ -35,6 +35,16 @@ def test_retiro_desde_la_apk():
     assert cliente.delete("/participantes/retiro", headers=AUTH).status_code == 204
     assert cliente.get("/api/participantes/retiro").status_code == 404
     assert cliente.delete("/participantes/retiro", headers=AUTH).status_code == 404
+    # Un día que llega después del retiro no recrea a la persona
+    assert cliente.post("/ingest", json={"participante_id": "retiro", "fecha": "2026-10-02"}, headers=AUTH).status_code == 410
+    assert cliente.get("/api/participantes/retiro").status_code == 404
+
+
+def test_ids_invalidos_dan_422():
+    for pid in ["x" * 65, 12345, "", None]:
+        r = cliente.post("/ingest", json={"participante_id": pid, "fecha": "2026-10-01"}, headers=AUTH)
+        assert r.status_code == 422, pid
+    assert cliente.post("/ingest", json={"participante_id": "ok", "fecha": 20261001}, headers=AUTH).status_code == 422
 
 
 def test_flujo_completo_con_sinteticos():
