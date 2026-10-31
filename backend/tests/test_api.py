@@ -78,3 +78,12 @@ def test_flujo_completo_con_sinteticos():
     assert cliente.delete(f"/api/participantes/{pid}").status_code == 200
     assert cliente.get(f"/api/participantes/{pid}").status_code == 404
     assert "perfil" in cliente.get("/api/exportar/perfiles.csv").text
+
+
+def test_corrida_con_sinteticos_y_reales_mezclados():
+    from app.analisis import calcular
+    from synthetic import generar
+    diario, _ = generar(80, 20, 3)
+    diario.loc[diario.participante_id < "p00020", "arquetipo"] = None  # simula datos reales sin arquetipo
+    resultado, asign = calcular(diario, None, 3)
+    assert "ari_arquetipos" in resultado["metricas"] and len(asign) == resultado["metricas"]["personas"]
