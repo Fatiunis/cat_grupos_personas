@@ -1,0 +1,42 @@
+name: Compilar APK
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Compilar APK de depuración
+        env:
+          INGEST_URL: ${{ secrets.INGEST_URL }}
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+        run: ./gradlew assembleDebug --no-daemon -PingestUrl="$INGEST_URL" -PingestToken="$INGEST_TOKEN"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: perfiles-uso-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+
+  ml:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r ml/requirements.txt
+      - name: Probar el pipeline con datos sintéticos
+        working-directory: ml
+        run: |
+          python synthetic.py --personas 600 --dias 28
+          python pipeline.py --etiquetas etiquetas_sinteticas.csv
