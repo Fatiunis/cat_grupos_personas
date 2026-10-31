@@ -591,7 +591,6 @@ class MainActivity : ComponentActivity() {
     private fun DataTab(padding: PaddingValues) {
         val ctx = this
         var summary by remember { mutableStateOf<JSONObject?>(null) }
-        var technical by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
             summary = withContext(Dispatchers.IO) { DailySummary(ctx).build(LocalDate.now().minusDays(1)) }
         }
@@ -652,10 +651,6 @@ class MainActivity : ComponentActivity() {
                         Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                     }
                 }
-                TextButton(onClick = { technical = !technical }, contentPadding = PaddingValues(0.dp)) {
-                    Text(if (technical) "Ocultar formato técnico" else "Ver en formato técnico")
-                }
-                if (technical) Text(s.toString(2), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
