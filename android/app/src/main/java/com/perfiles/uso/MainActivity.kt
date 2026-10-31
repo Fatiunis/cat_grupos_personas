@@ -14,6 +14,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -99,7 +100,8 @@ class MainActivity : ComponentActivity() {
         var paused by remember { mutableStateOf(store.paused) }
         Column(Modifier.padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Perfiles de uso", style = MaterialTheme.typography.headlineSmall)
-            Text("Tu código de participante: ${store.participantId.take(8)}")
+            Text("Tu código de participante:")
+            SelectionContainer { Text(store.participantId, fontFamily = FontFamily.Monospace) }
 
             Text("Permisos", style = MaterialTheme.typography.titleMedium)
             PermissionRow("Acceso a datos de uso", hasUsageAccess(ctx)) {
@@ -121,7 +123,7 @@ class MainActivity : ComponentActivity() {
 
             if (!store.bfi2Done) {
                 Text("Cuestionario inicial", style = MaterialTheme.typography.titleMedium)
-                Text("Responde el cuestionario BFI-2 en el enlace que te dio el equipo, usando tu código de participante.")
+                Text("Responde el cuestionario BFI-2 en el enlace que te dio el equipo, pegando tu código de participante completo.")
                 OutlinedButton(onClick = { store.bfi2Done = true; resumes++ }) { Text("Ya lo respondí") }
             }
 
@@ -143,7 +145,7 @@ class MainActivity : ComponentActivity() {
                     store.paused = paused
                 }) { Text(if (paused) "Reanudar" else "Pausar") }
                 TextButton(onClick = {
-                    Scheduler.stop(ctx)
+                    Scheduler.withdraw(ctx, store.participantId)
                     store.wipe()
                     onWithdraw()
                 }) { Text("Retirarme y borrar mis datos") }

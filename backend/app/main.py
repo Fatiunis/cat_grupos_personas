@@ -44,11 +44,21 @@ def admin(cred: HTTPBasicCredentials | None = Depends(basic)):
 
 # ---------- Ingesta desde la APK ----------
 
-@app.post("/ingest")
-def ingest(cuerpo: dict | list[dict], authorization: str = Header(""), db: Session = Depends(get_db)):
+def token_apk(authorization: str = Header("")):
     token = os.environ.get("INGEST_TOKEN", "")
     if token and not secrets.compare_digest(authorization, f"Bearer {token}"):
         raise HTTPException(401, "Token inválido")
+
+
+def _borrar(db, pid):
+    db.execute(delete(Asignacion).where(Asignacion.participante_id == pid))
+    db.execute(delete(Dia).where(Dia.participante_id == pid))
+    db.execute(delete(Participante).where(Participante.id == pid))
+    db.commit()
+
+
+@app.post("/ingest", dependencies=[Depends(token_apk)])
+def ingest(cuerpo: dict | list[dict], db: Session = Depends(get_db)):
     dias = cuerpo if isinstance(cuerpo, list) else [cuerpo]
     for d in dias:
         pid, fecha = d.get("participante_id"), d.get("fecha")
@@ -70,6 +80,13 @@ def ingest(cuerpo: dict | list[dict], authorization: str = Header(""), db: Sessi
         db.flush()
     db.commit()
     return {"guardados": len(dias)}
+
+
+@app.delete("/participantes/{pid}", status_code=204, dependencies=[Depends(token_apk)])
+def retiro_desde_apk(pid: str, db: Session = Depends(get_db)):
+    """La APK lo llama cuando la persona se retira; reintenta hasta recibir 2xx o 404."""
+    db.get(Participante, pid) or _404()
+    _borrar(db, pid)
 
 
 # ---------- API del dashboard ----------
@@ -165,10 +182,7 @@ def editar_participante(pid: str, cambio: CambioParticipante, db: Session = Depe
 def borrar_participante(pid: str, db: Session = Depends(get_db)):
     """Retiro del estudio: borra todos los datos de la persona."""
     db.get(Participante, pid) or _404()
-    db.execute(delete(Asignacion).where(Asignacion.participante_id == pid))
-    db.execute(delete(Dia).where(Dia.participante_id == pid))
-    db.execute(delete(Participante).where(Participante.id == pid))
-    db.commit()
+    _borrar(db, pid)
     return {"borrado": pid}
 
 

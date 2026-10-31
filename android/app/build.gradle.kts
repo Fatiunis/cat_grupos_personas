@@ -14,10 +14,10 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
-        // URL del backend de ingesta; vacío = solo guarda localmente
-        buildConfigField("String", "INGEST_URL", "\"\"")
-        // Token del backend; se envía como Authorization: Bearer <token>
-        buildConfigField("String", "INGEST_TOKEN", "\"\"")
+        // URL del backend (https://<host>/ingest) y token Bearer. Se pasan al compilar:
+        // ./gradlew assembleDebug -PingestUrl=... -PingestToken=...  (vacío = solo local)
+        buildConfigField("String", "INGEST_URL", "\"${project.findProperty("ingestUrl") ?: ""}\"")
+        buildConfigField("String", "INGEST_TOKEN", "\"${project.findProperty("ingestToken") ?: ""}\"")
     }
 
     buildFeatures {

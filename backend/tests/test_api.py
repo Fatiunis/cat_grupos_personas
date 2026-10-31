@@ -29,6 +29,14 @@ def test_ingest_pide_token_y_es_idempotente():
                         headers=AUTH).json() == {"guardados": 2}
 
 
+def test_retiro_desde_la_apk():
+    cliente.post("/ingest", json={"participante_id": "retiro", "fecha": "2026-10-01"}, headers=AUTH)
+    assert cliente.delete("/participantes/retiro").status_code == 401
+    assert cliente.delete("/participantes/retiro", headers=AUTH).status_code == 204
+    assert cliente.get("/api/participantes/retiro").status_code == 404
+    assert cliente.delete("/participantes/retiro", headers=AUTH).status_code == 404
+
+
 def test_flujo_completo_con_sinteticos():
     cargar(personas=120, dias=30, semilla=1, corrida=False, borrar=True)
     r = cliente.get("/api/resumen").json()
