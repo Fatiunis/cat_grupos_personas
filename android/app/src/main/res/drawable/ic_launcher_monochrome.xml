@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Tres barras redondeadas, el mismo logo de la barra superior -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#FFFFFF" android:pathData="M36,48a5,5 0,1 1,10 0a5,5 0,1 1,-10 0zM36,58h10a2,2 0,0 1,2 2v10h-14v-10a2,2 0,0 1,2 -2zM49,40a5,5 0,1 1,10 0a5,5 0,1 1,-10 0zM49,50h10a2,2 0,0 1,2 2v18h-14v-18a2,2 0,0 1,2 -2zM62,52a5,5 0,1 1,10 0a5,5 0,1 1,-10 0zM62,62h10a2,2 0,0 1,2 2v6h-14v-6a2,2 0,0 1,2 -2z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M38,56a4,4 0,0 1,8 0v14a4,4 0,0 1,-8 0z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M50,42a4,4 0,0 1,8 0v28a4,4 0,0 1,-8 0z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M62,64a4,4 0,0 1,8 0v6a4,4 0,0 1,-8 0z" />
 </vector>
