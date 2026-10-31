@@ -143,10 +143,12 @@ def calcular(diario, etiquetas=None, k=None):
         metricas["exactitud_clasificador"] = float(HistGradientBoostingClassifier(random_state=0).fit(Xtr, ytr).score(Xte, yte))
 
     cruce = None
-    if "arquetipo" in diario.columns:
-        verdad = diario.groupby("participante_id").arquetipo.first().reindex(feats.index)
-        metricas["ari_arquetipos"] = float(adjusted_rand_score(verdad, perfiles))
-        ct = pd.crosstab(verdad, perfiles)
+    # Solo los datos sintéticos traen arquetipo; si se mezclan con reales se compara sobre los sintéticos
+    verdad = diario.groupby("participante_id").arquetipo.first().reindex(feats.index).dropna() \
+        if "arquetipo" in diario.columns else pd.Series(dtype=object)
+    if len(verdad) >= 2:
+        metricas["ari_arquetipos"] = float(adjusted_rand_score(verdad, perfiles[verdad.index]))
+        ct = pd.crosstab(verdad, perfiles[verdad.index])
         cruce = dict(filas=ct.index.tolist(), columnas=[int(c) for c in ct.columns], valores=ct.values.tolist())
 
     etiqueta_por_perfil = None
