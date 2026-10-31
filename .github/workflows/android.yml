@@ -17,11 +17,23 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+      - name: Llave de firma fija
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/estudio.jks"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/estudio.jks" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Sin ANDROID_KEYSTORE_B64: la APK no podrá instalarse encima de otra como actualización"
+          fi
       - name: Compilar APK de depuración
         env:
           INGEST_URL: ${{ secrets.INGEST_URL }}
           INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
-        run: ./gradlew assembleDebug --no-daemon -PingestUrl="$INGEST_URL" -PingestToken="$INGEST_TOKEN"
+          BFI2_URL: ${{ secrets.BFI2_URL }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: ./gradlew assembleDebug --no-daemon -PingestUrl="$INGEST_URL" -PingestToken="$INGEST_TOKEN" -Pbfi2Url="$BFI2_URL"
       - uses: actions/upload-artifact@v4
         with:
           name: perfiles-uso-debug-apk

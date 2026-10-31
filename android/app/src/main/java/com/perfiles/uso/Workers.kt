@@ -140,7 +140,7 @@ class ReminderWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, param
             PendingIntent.FLAG_IMMUTABLE,
         )
         val n = NotificationCompat.Builder(applicationContext, "diaria")
-            .setSmallIcon(android.R.drawable.ic_menu_edit)
+            .setSmallIcon(R.drawable.ic_notificacion)
             .setContentTitle("¿Cómo te fue hoy?")
             .setContentText("Responde dos preguntas cortas sobre tu día.")
             .setContentIntent(open)

@@ -12,12 +12,35 @@ android {
         applicationId = "com.perfiles.uso"
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // En GitHub Actions la versión sube con cada compilación, para instalar encima como actualización
+        val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = runNumber
+        versionName = "0.2.$runNumber"
         // URL del backend (https://<host>/ingest) y token Bearer. Se pasan al compilar:
         // ./gradlew assembleDebug -PingestUrl=... -PingestToken=...  (vacío = solo local)
         buildConfigField("String", "INGEST_URL", "\"${project.findProperty("ingestUrl") ?: ""}\"")
         buildConfigField("String", "INGEST_TOKEN", "\"${project.findProperty("ingestToken") ?: ""}\"")
+        // Enlace al formulario del BFI-2 (vacío = la app dice que lo da el equipo)
+        buildConfigField("String", "BFI2_URL", "\"${project.findProperty("bfi2Url") ?: ""}\"")
+    }
+
+    // Llave fija: sin ella cada compilación sale firmada distinto y Android no deja actualizar encima.
+    // El workflow la toma de los secrets ANDROID_KEYSTORE_B64 y ANDROID_KEYSTORE_PASSWORD.
+    val keystore = System.getenv("ANDROID_KEYSTORE_PATH")?.let { file(it) }?.takeIf { it.exists() }
+    signingConfigs {
+        if (keystore != null) {
+            create("estudio") {
+                storeFile = keystore
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = "estudio"
+                keyPassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+    buildTypes {
+        getByName("debug") {
+            if (keystore != null) signingConfig = signingConfigs.getByName("estudio")
+        }
     }
 
     buildFeatures {
@@ -36,6 +59,7 @@ android {
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.work:work-runtime-ktx:2.10.0")

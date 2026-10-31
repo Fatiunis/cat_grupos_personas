@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tres grupos de personas: un punto y una barra por grupo -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF" android:pathData="M36,48a5,5 0,1 1,10 0a5,5 0,1 1,-10 0z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M36,58h10a2,2 0,0 1,2 2v10h-14v-10a2,2 0,0 1,2 -2z" />
+    <path android:fillColor="#9CF1F2" android:pathData="M49,40a5,5 0,1 1,10 0a5,5 0,1 1,-10 0z" />
+    <path android:fillColor="#9CF1F2" android:pathData="M49,50h10a2,2 0,0 1,2 2v18h-14v-18a2,2 0,0 1,2 -2z" />
+    <path android:fillColor="#FFDEA6" android:pathData="M62,52a5,5 0,1 1,10 0a5,5 0,1 1,-10 0z" />
+    <path android:fillColor="#FFDEA6" android:pathData="M62,62h10a2,2 0,0 1,2 2v6h-14v-6a2,2 0,0 1,2 -2z" />
+</vector>
