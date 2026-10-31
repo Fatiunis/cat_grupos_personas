@@ -55,6 +55,8 @@ def features_por_persona(diario):
     for c in feats.columns:
         if (feats[c] >= 0).all() and feats[c].skew() > 1:
             feats[c] = np.log1p(feats[c])
+    # Columnas que solo tenían personas sin días suficientes quedan vacías: se descartan
+    feats = feats.dropna(axis=1, how="all")
     feats = feats.fillna(feats.median())
     excluidas = sorted(set(dias.index) - set(validos))
     return feats, excluidas

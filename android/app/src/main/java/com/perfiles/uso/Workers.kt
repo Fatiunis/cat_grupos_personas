@@ -117,7 +117,11 @@ class WithdrawWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, param
             }
             val code = conn.responseCode
             conn.disconnect()
-            if (code in 200..299 || code == 404) Result.success() else Result.retry()
+            when {
+                code in 200..299 || code == 404 -> Result.success()
+                code == 401 || code == 403 -> Result.failure() // token inválido: reintentar no sirve
+                else -> Result.retry()
+            }
         } catch (e: Exception) {
             Result.retry()
         }

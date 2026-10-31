@@ -53,3 +53,10 @@ class Asignacion(Base):
     prob: Mapped[float] = mapped_column(Float)
     x: Mapped[float] = mapped_column(Float)  # dos primeras componentes PCA, para el mapa
     y: Mapped[float] = mapped_column(Float)
+
+
+class Retirado(Base):
+    """IDs de personas que se retiraron: sus envíos posteriores se rechazan con 410."""
+    __tablename__ = "retirados"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora)
