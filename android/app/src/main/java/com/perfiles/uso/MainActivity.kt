@@ -21,7 +21,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -31,6 +30,8 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
@@ -38,7 +39,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -60,7 +60,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
 
-private enum class Tab { HOY, DATOS, AJUSTES }
+private enum class Tab { HOY, DATOS, AJUSTES, PERMISOS }
 
 private val Soft = RoundedCornerShape(16.dp)
 private val CardShape = RoundedCornerShape(22.dp)
@@ -116,6 +116,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun openUsageAccess() = startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+
+    private fun openBattery() =
+        startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+
+    private fun openNotificationAccess() = startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+
     private fun readPermisos(store: Store) = Permisos(
         usage = hasUsageAccess(this),
         battery = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName),
@@ -140,6 +147,24 @@ class MainActivity : ComponentActivity() {
             listOf(9, 16, 6).forEach { h ->
                 Box(Modifier.width(5.dp).height(h.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(3.dp)))
             }
+        }
+    }
+
+    /** Barra superior en el crema de las tarjetas, con una línea fina debajo. */
+    @Composable
+    private fun TopBar(
+        title: String,
+        navigationIcon: @Composable () -> Unit,
+        actions: @Composable RowScope.() -> Unit = {},
+    ) {
+        Column {
+            TopAppBar(
+                title = { Text(title, style = MaterialTheme.typography.titleLarge) },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+                navigationIcon = navigationIcon,
+                actions = actions,
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         }
     }
 
@@ -227,11 +252,7 @@ class MainActivity : ComponentActivity() {
         var accepted by remember { mutableStateOf(false) }
         Scaffold(
             topBar = {
-                TopAppBar(
-                    title = { Text("Perfiles de uso", style = MaterialTheme.typography.titleLarge) },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-                    navigationIcon = { Box(Modifier.padding(start = 12.dp, end = 4.dp)) { Logo() } },
-                )
+                TopBar("Perfiles de uso", navigationIcon = { Box(Modifier.padding(start = 12.dp, end = 4.dp)) { Logo() } })
             },
             containerColor = MaterialTheme.colorScheme.background,
         ) { padding ->
@@ -295,28 +316,27 @@ class MainActivity : ComponentActivity() {
         var tab by remember { mutableStateOf(Tab.HOY) }
         val permisos = remember(resumes) { readPermisos(store) }
         var paused by remember { mutableStateOf(store.paused) }
-        BackHandler(enabled = tab != Tab.HOY) { tab = Tab.HOY }
+        BackHandler(enabled = tab != Tab.HOY) { tab = if (tab == Tab.PERMISOS) Tab.AJUSTES else Tab.HOY }
 
         Scaffold(
             topBar = {
-                if (tab == Tab.AJUSTES) {
-                    TopAppBar(
-                        title = { Text("Ajustes", style = MaterialTheme.typography.titleLarge) },
-                        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                when (tab) {
+                    Tab.AJUSTES, Tab.PERMISOS -> TopBar(
+                        if (tab == Tab.AJUSTES) "Ajustes" else "Permisos",
                         navigationIcon = {
-                            IconButton(onClick = { tab = Tab.HOY }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Volver") }
+                            IconButton(onClick = { tab = if (tab == Tab.PERMISOS) Tab.AJUSTES else Tab.HOY }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Volver")
+                            }
                         },
                     )
-                } else {
-                    TopAppBar(
-                        title = { Text("Perfiles de uso", style = MaterialTheme.typography.titleLarge) },
-                        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                    else -> TopBar(
+                        "Perfiles de uso",
                         navigationIcon = { Box(Modifier.padding(start = 12.dp, end = 4.dp)) { Logo() } },
                         actions = {
                             IconButton(
                                 onClick = { tab = Tab.AJUSTES },
                                 colors = IconButtonDefaults.iconButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.surface,
+                                    containerColor = MaterialTheme.colorScheme.background,
                                     contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                 ),
                             ) { Icon(Icons.Default.Settings, "Ajustes") }
@@ -325,7 +345,7 @@ class MainActivity : ComponentActivity() {
                 }
             },
             bottomBar = {
-                if (tab != Tab.AJUSTES) {
+                if (tab == Tab.HOY || tab == Tab.DATOS) {
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -347,9 +367,10 @@ class MainActivity : ComponentActivity() {
                 Tab.AJUSTES -> SettingsTab(
                     padding, store, permisos, paused,
                     onPause = { paused = it; store.paused = it },
-                    onShowPermisos = { tab = Tab.HOY },
+                    onShowPermisos = { tab = Tab.PERMISOS },
                     onWithdraw = onWithdraw,
                 )
+                Tab.PERMISOS -> PermisosTab(padding, permisos)
             }
         }
     }
@@ -413,17 +434,6 @@ class MainActivity : ComponentActivity() {
             elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         ) {
             Box(Modifier.fillMaxWidth()) {
-                // Mancha difusa en la esquina, como los widgets de la referencia
-                Box(
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = 30.dp, y = (-30).dp)
-                        .size(150.dp)
-                        .background(
-                            Brush.radialGradient(listOf(colors.tertiary.copy(alpha = 0.55f), colors.tertiary.copy(alpha = 0.18f), Color.Transparent)),
-                            CircleShape,
-                        )
-                )
                 Column(Modifier.padding(18.dp)) {
                     Muted(hello)
                     Text(day, style = MaterialTheme.typography.displaySmall)
@@ -459,19 +469,11 @@ class MainActivity : ComponentActivity() {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Step(1, "Acceso a datos de uso", "Permite medir cuánto usas cada tipo de app.", permisos.usage) {
-                startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-            }
-            Step(2, "Funcionar de noche", "Evita que Android cierre la app.", permisos.battery) {
-                startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
-            }
-            Step(3, "Recordatorio de la noche", "Te avisa cuando toca responder.", permisos.reminders) {
-                requestReminders()
-            }
+            Step(1, "Acceso a datos de uso", "Permite medir cuánto usas cada tipo de app.", permisos.usage, ::openUsageAccess)
+            Step(2, "Funcionar de noche", "Evita que Android cierre la app.", permisos.battery, ::openBattery)
+            Step(3, "Recordatorio de la noche", "Te avisa cuando toca responder.", permisos.reminders, ::requestReminders)
             if (permisos.counter != null) {
-                Step(4, "Contar notificaciones", "Solo cuenta cuántas llegan; nunca las lee.", permisos.counter) {
-                    startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                }
+                Step(4, "Contar notificaciones", "Solo cuenta cuántas llegan; nunca las lee.", permisos.counter, ::openNotificationAccess)
             }
             Text(
                 "En Xiaomi, Huawei, Oppo o Samsung activa también el inicio automático en Ajustes › Batería.",
@@ -625,11 +627,26 @@ class MainActivity : ComponentActivity() {
                 .take(5)
             if (cats.isNotEmpty()) {
                 Section("En qué lo usaste") {
+                    Text(
+                        "Toca una para ver qué apps cuenta.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     val top = cats.first().second
+                    var open by remember { mutableStateOf<String?>(null) }
                     cats.forEachIndexed { i, (c, m) ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(CATEGORY_NAMES[c] ?: c, style = MaterialTheme.typography.bodyLarge)
+                        Row(
+                            Modifier.fillMaxWidth().clickable { open = if (open == c) null else c }.padding(top = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(CATEGORY_NAMES[c] ?: c, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                             Text(minutes(m), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                            Icon(
+                                if (open == c) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                if (open == c) "Cerrar" else "Ver qué apps cuenta",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 4.dp).size(18.dp),
+                            )
                         }
                         Box(Modifier.fillMaxWidth().height(10.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(5.dp))) {
                             Box(
@@ -637,6 +654,13 @@ class MainActivity : ComponentActivity() {
                                     if (i == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
                                     RoundedCornerShape(5.dp),
                                 )
+                            )
+                        }
+                        if (open == c) {
+                            Text(
+                                CATEGORY_DESC[c] ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         Spacer(Modifier.height(2.dp))
@@ -772,6 +796,78 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ---------- Permisos ----------
+
+    @Composable
+    private fun PermisosTab(padding: PaddingValues, permisos: Permisos) {
+        Page(padding) {
+            Muted("Toca cada uno para ver para qué sirve.")
+            Section {
+                PermisoRow("Datos de uso", permisos.usage, "Mide cuánto tiempo usas el teléfono y en qué tipo de apps. Nunca lee tus mensajes, fotos ni contactos.", ::openUsageAccess)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                PermisoRow("Funcionar de noche", permisos.battery, "Evita que Android cierre la app. No toma ningún dato.", ::openBattery)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                PermisoRow("Recordatorio de la noche", permisos.reminders, "Te avisa cuando toca responder la pregunta del día. No toma ningún dato.", ::requestReminders)
+                if (permisos.counter != null) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    PermisoRow("Contar notificaciones", permisos.counter, "Solo cuenta cuántas llegan. Nunca ve de qué app son ni qué dicen.", ::openNotificationAccess)
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                PermisoRow("Sin permiso especial", null, "Anota el nivel de batería, si está cargando y si usas wifi o datos. Nada más.", null)
+            }
+        }
+    }
+
+    /** Fila que se despliega al tocarla. [ok] null = informativa, sin estado. */
+    @Composable
+    private fun PermisoRow(title: String, ok: Boolean?, detail: String, onFix: (() -> Unit)?) {
+        val colors = MaterialTheme.colorScheme
+        var open by remember { mutableStateOf(false) }
+        Column(Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(28.dp).background(
+                        when (ok) { true -> colors.secondaryContainer; false -> colors.tertiaryContainer; null -> colors.surfaceVariant },
+                        RoundedCornerShape(9.dp),
+                    ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    when (ok) {
+                        true -> Icon(Icons.Default.Check, null, tint = colors.onSecondaryContainer, modifier = Modifier.size(16.dp))
+                        false -> Text("!", color = colors.onTertiaryContainer, fontWeight = FontWeight.Bold)
+                        null -> Text("i", color = colors.onSurface, fontWeight = FontWeight.Bold)
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleSmall)
+                    Muted(when (ok) { true -> "Activo"; false -> "Apagado"; null -> "Batería y tipo de red" })
+                }
+                if (ok == false && onFix != null) {
+                    FilledTonalButton(
+                        onClick = onFix,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = colors.primaryContainer, contentColor = colors.onPrimaryContainer),
+                    ) { Text("Activar") }
+                } else {
+                    Icon(
+                        if (open) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        if (open) "Cerrar" else "Ver para qué sirve",
+                        tint = colors.onSurfaceVariant,
+                    )
+                }
+            }
+            if (open) {
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 40.dp, top = 8.dp),
+                )
+            }
+        }
+    }
+
     private fun hasUsageAccess(ctx: Context): Boolean {
         val ops = ctx.getSystemService(AppOpsManager::class.java)
         val mode = if (Build.VERSION.SDK_INT >= 29) {
@@ -794,6 +890,17 @@ class MainActivity : ComponentActivity() {
             "finanzas" to "Finanzas",
             "compras" to "Compras",
             "otros" to "Otras apps",
+        )
+        val CATEGORY_DESC = mapOf(
+            "social" to "Instagram, TikTok, Facebook, X, Snapchat, Reddit, Pinterest.",
+            "mensajeria" to "WhatsApp, Telegram, Messenger, Mensajes, Discord.",
+            "juegos" to "Las apps que tu teléfono marca como juegos.",
+            "video" to "YouTube, Netflix, Disney+, Twitch.",
+            "productividad" to "Gmail, Calendario, Docs, Outlook, Teams, Slack.",
+            "educacion" to "Duolingo, Classroom.",
+            "finanzas" to "Apps de bancos y billeteras.",
+            "compras" to "Mercado Libre, Amazon.",
+            "otros" to "Navegador, cámara, mapas, música y todo lo que no entra en otro grupo. Las apps de salud, citas, religión o política también van aquí, para cuidar tu privacidad.",
         )
     }
 }
