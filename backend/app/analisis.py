@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ml"))
 from pipeline import DIAS_MINIMOS, describir_perfiles, elegir_k, features_por_persona, quitar_redundantes  # noqa: E402
+from synthetic import generar  # noqa: E402
 
 from .models import Asignacion, Corrida, Dia, Participante  # noqa: E402
 
@@ -169,11 +170,32 @@ def calcular(diario, etiquetas=None, k=None):
     return resultado, asign
 
 
+def _corrida_simulada(corrida, sim):
+    """Demostración: genera personas sintéticas en memoria y corre el mismo análisis.
+
+    No toca las tablas de participantes, días ni asignaciones: los puntos del mapa quedan
+    dentro del resultado, así una simulación nunca se mezcla con los datos reales.
+    """
+    diario, etiq = generar(sim["personas"], sim.get("dias", 42), sim.get("semilla", 7))
+    diario["fecha"] = diario.fecha.astype(str)
+    bfi = etiq.set_index("participante_id").bfi2_responsabilidad
+    resultado, asign = calcular(diario, bfi, corrida.k_pedido)
+    resultado["simulacion"] = sim
+    resultado["puntos_sim"] = [dict(id=a["participante_id"], perfil=a["perfil"], prob=round(a["prob"], 3),
+                                    x=round(a["x"], 3), y=round(a["y"], 3)) for a in asign]
+    corrida.resultado, corrida.k, corrida.estado = resultado, len(resultado["perfiles"]), "lista"
+
+
 def ejecutar_corrida(corrida_id, session_factory):
     """Pensado para correr en segundo plano: lee los datos, calcula y guarda."""
     with session_factory() as db:
         corrida = db.get(Corrida, corrida_id)
+        sim = (corrida.resultado or {}).get("simulacion")
         try:
+            if sim:
+                _corrida_simulada(corrida, sim)
+                db.commit()
+                return
             diario = cargar_diario(db)
             if diario.empty:
                 raise ValueError("No hay datos diarios cargados.")

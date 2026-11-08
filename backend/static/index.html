@@ -65,6 +65,7 @@
       <h2>Perfiles</h2>
       <select id="sel-corrida" aria-label="Corrida"></select>
     </div>
+    <p class="aviso sim" id="aviso-sim" hidden>Simulación con personas sintéticas: sirve para ver cómo funciona el modelo, no son resultados del estudio.</p>
     <div class="tiles" id="tiles-perfiles"></div>
     <div class="tarjetas-perfil" id="tarjetas-perfil"></div>
     <div class="grid2">
@@ -104,6 +105,8 @@
           </label>
           <button type="submit" class="primario">Correr análisis</button>
         </form>
+        <p class="muted" style="margin-top:16px">¿Aún no hay suficientes participantes? Mira cómo funciona el modelo con 300 personas sintéticas. Sale marcada como <b>Simulación</b> y no toca los datos reales.</p>
+        <button type="button" id="btn-simulacion">Ver demostración con datos sintéticos</button>
       </div>
       <div class="tarjeta">
         <h3>Cargar resultados del BFI-2</h3>

@@ -98,8 +98,16 @@ def retiro_desde_apk(pid: str, db: Session = Depends(get_db)):
 api = Depends(admin)
 
 
+def _es_simulacion(c):
+    return bool((c.resultado or {}).get("simulacion"))
+
+
 def _corrida_actual(db):
-    return db.scalar(select(Corrida).where(Corrida.estado == "lista").order_by(Corrida.id.desc()))
+    """Última corrida terminada con datos reales; las simulaciones no cuentan."""
+    for c in db.scalars(select(Corrida).where(Corrida.estado == "lista").order_by(Corrida.id.desc())):
+        if not _es_simulacion(c):
+            return c
+    return None
 
 
 @app.get("/api/resumen", dependencies=[api])
@@ -213,19 +221,24 @@ async def subir_etiquetas(archivo: UploadFile = File(...), db: Session = Depends
 @app.get("/api/corridas", dependencies=[api])
 def corridas(db: Session = Depends(get_db)):
     return [dict(id=c.id, creada=c.creada.isoformat(), estado=c.estado, k=c.k, k_pedido=c.k_pedido, error=c.error,
-                 personas=(c.resultado or {}).get("metricas", {}).get("personas"))
+                 personas=(c.resultado or {}).get("metricas", {}).get("personas"), simulacion=_es_simulacion(c))
             for c in db.scalars(select(Corrida).order_by(Corrida.id.desc()))]
 
 
 class NuevaCorrida(BaseModel):
     k: int | None = None
+    simulacion: bool = False  # demostración con personas sintéticas, aparte de los datos reales
+    personas: int = 300
 
 
 @app.post("/api/corridas", dependencies=[api])
 def nueva_corrida(pedido: NuevaCorrida, tareas: BackgroundTasks, db: Session = Depends(get_db)):
     if pedido.k is not None and not 2 <= pedido.k <= 8:
         raise HTTPException(422, "k debe estar entre 2 y 8")
-    c = Corrida(k_pedido=pedido.k, resultado={})
+    if pedido.simulacion and not 60 <= pedido.personas <= 1000:
+        raise HTTPException(422, "personas debe estar entre 60 y 1000")
+    sim = dict(personas=pedido.personas, dias=42, semilla=7) if pedido.simulacion else None
+    c = Corrida(k_pedido=pedido.k, resultado={"simulacion": sim} if sim else {})
     db.add(c)
     db.commit()
     tareas.add_task(ejecutar_corrida, c.id, SessionLocal)
@@ -235,10 +248,14 @@ def nueva_corrida(pedido: NuevaCorrida, tareas: BackgroundTasks, db: Session = D
 @app.get("/api/corridas/{cid}", dependencies=[api])
 def corrida(cid: int, db: Session = Depends(get_db)):
     c = db.get(Corrida, cid) or _404()
-    puntos = [dict(id=a.participante_id, perfil=a.perfil, prob=round(a.prob, 3), x=round(a.x, 3), y=round(a.y, 3))
-              for a in db.scalars(select(Asignacion).where(Asignacion.corrida_id == cid))]
+    res = dict(c.resultado or {})
+    puntos = res.pop("puntos_sim", None)
+    sim = res.pop("simulacion", None)
+    if puntos is None:
+        puntos = [dict(id=a.participante_id, perfil=a.perfil, prob=round(a.prob, 3), x=round(a.x, 3), y=round(a.y, 3))
+                  for a in db.scalars(select(Asignacion).where(Asignacion.corrida_id == cid))]
     return dict(id=c.id, creada=c.creada.isoformat(), estado=c.estado, k=c.k, k_pedido=c.k_pedido, error=c.error,
-                **(c.resultado or {}), puntos=puntos)
+                **res, simulacion=bool(sim), puntos=puntos)
 
 
 class CambioPerfil(BaseModel):
@@ -285,8 +302,12 @@ def exportar_perfiles(corrida: int | None = None, db: Session = Depends(get_db))
     if c is None:
         _404()
     nombres = {p["perfil"]: p["nombre"] for p in c.resultado["perfiles"]}
-    filas = [dict(participante_id=a.participante_id, perfil=a.perfil, nombre_perfil=nombres.get(a.perfil), prob=a.prob)
-             for a in db.scalars(select(Asignacion).where(Asignacion.corrida_id == c.id))]
+    if _es_simulacion(c):
+        filas = [dict(participante_id=p["id"], perfil=p["perfil"], nombre_perfil=nombres.get(p["perfil"]), prob=p["prob"])
+                 for p in c.resultado.get("puntos_sim", [])]
+    else:
+        filas = [dict(participante_id=a.participante_id, perfil=a.perfil, nombre_perfil=nombres.get(a.perfil), prob=a.prob)
+                 for a in db.scalars(select(Asignacion).where(Asignacion.corrida_id == c.id))]
     return _csv(pd.DataFrame(filas), f"perfiles_corrida_{c.id}.csv")
 
 
