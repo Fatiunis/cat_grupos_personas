@@ -251,6 +251,16 @@ async function cargarCorrida(id) {
   pintarBfi();
   pintarTablaZ();
 
+  const ub = c.ubicados || [];
+  $("#bloque-ubicados").hidden = !c.simulacion;
+  const nombreP = (k) => c.perfiles.find((p) => p.perfil === k)?.nombre ?? k;
+  $("#tabla-ubicados").innerHTML = ub.length
+    ? `<tr><th>Participante</th><th class="num">Días</th><th>Perfil más parecido</th><th class="num">Confianza</th></tr>` +
+      ub.sort((a, b) => b.dias - a.dias).map((u) => `<tr class="clicable" data-id="${esc(u.id)}"><td>${esc(u.id.slice(0, 8))}</td><td class="num">${u.dias}</td>` +
+        `<td><span class="punto" style="--c:${color(u.perfil)}"></span>${esc(nombreP(u.perfil))}</td><td class="num">${pct(u.prob)}</td></tr>`).join("")
+    : `<tr><td class="muted">Aún no hay días de participantes reales para ubicar.</td></tr>`;
+  document.querySelectorAll("#tabla-ubicados tr[data-id]").forEach((tr) => (tr.onclick = () => abrirParticipante(tr.dataset.id)));
+
   const cr = c.cruce_arquetipos;
   $("#bloque-cruce").hidden = !cr;
   if (cr) {
@@ -273,12 +283,25 @@ function pintarMapa() {
       pointRadius: activo && foco !== "" ? 5 : 4, pointHoverRadius: 7, order: activo ? 0 : 1,
     };
   });
+  if (c.ubicados?.length) {
+    datasets.push({
+      label: "Tus participantes", data: c.ubicados, pointStyle: "rectRot", pointRadius: 8, pointHoverRadius: 10,
+      backgroundColor: c.ubicados.map((u) => color(u.perfil)), borderColor: css("--tinta"), borderWidth: 2, order: -1,
+    });
+  }
   const op = opcionesBase({ interaction: { mode: "nearest", intersect: true } });
   op.scales.y.beginAtZero = false;
   op.scales.x.grid = { color: css("--rejilla") };
   op.plugins.legend = { display: true, position: "bottom", labels: { color: css("--tinta-2"), usePointStyle: true, boxWidth: 8 } };
-  op.plugins.tooltip.callbacks = { label: (ctx) => `${ctx.raw.id} · ${ctx.dataset.label} (${pct(ctx.raw.prob)})` };
-  op.onClick = (_, els) => { if (els.length) abrirParticipante(datasets[els[0].datasetIndex].data[els[0].index].id); };
+  const nombreP = (k) => c.perfiles.find((p) => p.perfil === k)?.nombre ?? k;
+  op.plugins.tooltip.callbacks = { label: (ctx) => ctx.raw.dias != null
+    ? `${ctx.raw.id.slice(0, 8)} (real, ${ctx.raw.dias} días) · ${nombreP(ctx.raw.perfil)} (${pct(ctx.raw.prob)})`
+    : `${ctx.raw.id} · ${ctx.dataset.label} (${pct(ctx.raw.prob)})` };
+  op.onClick = (_, els) => {
+    const x = els.length && datasets[els[0].datasetIndex].data[els[0].index];
+    // En una simulación solo los puntos reales tienen ficha
+    if (x && (!c.simulacion || x.dias != null)) abrirParticipante(x.id);
+  };
   grafico("g-mapa", { type: "scatter", data: { datasets }, options: op });
 }
 

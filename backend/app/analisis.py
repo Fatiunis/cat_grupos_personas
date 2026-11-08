@@ -103,11 +103,23 @@ def _limpio(x):
     return x
 
 
-def calcular(diario, etiquetas=None, k=None):
-    """Devuelve (resultado, asignaciones). Misma lógica que pipeline.main()."""
+def calcular(diario, etiquetas=None, k=None, ubicar=None):
+    """Devuelve (resultado, asignaciones). Misma lógica que pipeline.main().
+
+    ubicar: días de otras personas (los participantes reales en una simulación). No entran al
+    ajuste del modelo; solo se ubican después en los perfiles encontrados, aunque tengan pocos días.
+    """
     feats, excluidas = features_por_persona(diario)
     if len(feats) < 30:
         raise ValueError(f"Hay {len(feats)} personas con al menos {DIAS_MINIMOS} días; se necesitan 30 o más.")
+    nuevos = None
+    if ubicar is not None and not ubicar.empty:
+        # Se calculan juntas para que ambas pasen por las mismas transformaciones (logaritmos, faltantes)
+        todo, _ = features_por_persona(pd.concat([diario, ubicar], ignore_index=True), dias_minimos=1)
+        nuevos = todo.drop(index=feats.index, errors="ignore")
+        feats = todo.loc[feats.index]
+        # Llevar pocos días no es un rasgo de uso: se les pone la duración típica para no alejarlos por eso
+        nuevos["dias_validos"] = feats.dias_validos.median()
     X = quitar_redundantes(feats)
     escalador = RobustScaler().fit(X)
     pca = PCA(n_components=0.9, random_state=0).fit(escalador.transform(X))
@@ -165,21 +177,37 @@ def calcular(diario, etiquetas=None, k=None):
 
     resultado = _limpio(dict(metricas=metricas, tabla_k=tabla_k.to_dict(orient="records"), perfiles=por_perfil,
                              cruce_arquetipos=cruce, responsabilidad=etiqueta_por_perfil))
+    if nuevos is not None and len(nuevos):
+        Zn = pca.transform(escalador.transform(nuevos[X.columns]))
+        pn = gm.predict_proba(Zn)
+        dias_n = ubicar.groupby("participante_id").size()
+        resultado["ubicados"] = [dict(id=pid, perfil=int(pr.argmax()), prob=round(float(pr.max()), 3), dias=int(dias_n.get(pid, 0)),
+                                      x=round(float(zz[0]), 3), y=round(float(zz[1] if len(zz) > 1 else 0), 3))
+                                 for pid, pr, zz in zip(nuevos.index, pn, Zn)]
     asign = [dict(participante_id=pid, perfil=int(perfiles[pid]), prob=float(pr), x=float(zz[0]), y=float(zz[1] if len(zz) > 1 else 0))
              for pid, pr, zz in zip(feats.index, prob, Z)]
     return resultado, asign
 
 
-def _corrida_simulada(corrida, sim):
+def _corrida_simulada(db, corrida, sim):
     """Demostración: genera personas sintéticas en memoria y corre el mismo análisis.
 
     No toca las tablas de participantes, días ni asignaciones: los puntos del mapa quedan
-    dentro del resultado, así una simulación nunca se mezcla con los datos reales.
+    dentro del resultado, así una simulación nunca se mezcla con los datos reales. Los
+    participantes reales que ya mandaron días se ubican en los perfiles de la simulación.
     """
     diario, etiq = generar(sim["personas"], sim.get("dias", 42), sim.get("semilla", 7))
     diario["fecha"] = diario.fecha.astype(str)
     bfi = etiq.set_index("participante_id").bfi2_responsabilidad
-    resultado, asign = calcular(diario, bfi, corrida.k_pedido)
+    reales = cargar_diario(db)
+    if not reales.empty and "pantalla_min" in reales.columns:
+        reales = reales[~reales.participante_id.isin(set(diario.participante_id))]
+        for c in reales.columns.difference(["participante_id", "fecha"]):
+            if reales[c].dtype == object:
+                reales[c] = pd.to_numeric(reales[c], errors="coerce") if c != "arquetipo" else reales[c]
+    else:
+        reales = None
+    resultado, asign = calcular(diario, bfi, corrida.k_pedido, ubicar=reales)
     resultado["simulacion"] = sim
     resultado["puntos_sim"] = [dict(id=a["participante_id"], perfil=a["perfil"], prob=round(a["prob"], 3),
                                     x=round(a["x"], 3), y=round(a["y"], 3)) for a in asign]
@@ -193,7 +221,7 @@ def ejecutar_corrida(corrida_id, session_factory):
         sim = (corrida.resultado or {}).get("simulacion")
         try:
             if sim:
-                _corrida_simulada(corrida, sim)
+                _corrida_simulada(db, corrida, sim)
                 db.commit()
                 return
             diario = cargar_diario(db)

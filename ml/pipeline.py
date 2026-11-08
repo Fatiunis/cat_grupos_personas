@@ -38,10 +38,10 @@ def limpiar(diario):
     return d
 
 
-def features_por_persona(diario):
+def features_por_persona(diario, dias_minimos=DIAS_MINIMOS):
     d = limpiar(diario)
     dias = d.groupby("participante_id").size()
-    validos = dias[dias >= DIAS_MINIMOS].index
+    validos = dias[dias >= dias_minimos].index
     d = d[d.participante_id.isin(validos)]
     num = [c for c in d.select_dtypes("number").columns if c not in EXCLUIR]
     g = d.groupby("participante_id")[num]
