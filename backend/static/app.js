@@ -186,7 +186,7 @@ const ETIQUETAS_Z = {
 async function cargarCorridas() {
   const lista = (await api("/api/corridas")).filter((c) => c.estado === "lista");
   const sel = $("#sel-corrida");
-  sel.innerHTML = lista.map((c) => `<option value="${c.id}">Corrida ${c.id} · ${c.k} perfiles · ${new Date(c.creada).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}</option>`).join("");
+  sel.innerHTML = lista.map((c) => `<option value="${c.id}">${c.simulacion ? "Simulación · " : ""}Corrida ${c.id} · ${c.k} perfiles · ${new Date(c.creada).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}</option>`).join("");
   if (!lista.length) {
     $("#tarjetas-perfil").innerHTML = `<p class="muted">No hay corridas terminadas. Crea una en <a href="#analisis">Análisis</a>.</p>`;
     return;
@@ -206,6 +206,7 @@ function celdaZ(v) {
 async function cargarCorrida(id) {
   const c = await api(`/api/corridas/${id}`);
   estado.corrida = c;
+  $("#aviso-sim").hidden = !c.simulacion;
   const m = c.metricas;
   $("#tiles-perfiles").innerHTML = [
     tile(fmt(m.personas), "Personas con perfil", `${m.sin_perfil_pocos_dias} sin perfil por pocos días`),
@@ -250,6 +251,16 @@ async function cargarCorrida(id) {
   pintarBfi();
   pintarTablaZ();
 
+  const ub = c.ubicados || [];
+  $("#bloque-ubicados").hidden = !c.simulacion;
+  const nombreP = (k) => c.perfiles.find((p) => p.perfil === k)?.nombre ?? k;
+  $("#tabla-ubicados").innerHTML = ub.length
+    ? `<tr><th>Participante</th><th class="num">Días</th><th>Perfil más parecido</th><th class="num">Confianza</th></tr>` +
+      ub.sort((a, b) => b.dias - a.dias).map((u) => `<tr class="clicable" data-id="${esc(u.id)}"><td>${esc(u.id.slice(0, 8))}</td><td class="num">${u.dias}</td>` +
+        `<td><span class="punto" style="--c:${color(u.perfil)}"></span>${esc(nombreP(u.perfil))}</td><td class="num">${pct(u.prob)}</td></tr>`).join("")
+    : `<tr><td class="muted">Aún no hay días de participantes reales para ubicar.</td></tr>`;
+  document.querySelectorAll("#tabla-ubicados tr[data-id]").forEach((tr) => (tr.onclick = () => abrirParticipante(tr.dataset.id)));
+
   const cr = c.cruce_arquetipos;
   $("#bloque-cruce").hidden = !cr;
   if (cr) {
@@ -272,12 +283,25 @@ function pintarMapa() {
       pointRadius: activo && foco !== "" ? 5 : 4, pointHoverRadius: 7, order: activo ? 0 : 1,
     };
   });
+  if (c.ubicados?.length) {
+    datasets.push({
+      label: "Tus participantes", data: c.ubicados, pointStyle: "rectRot", pointRadius: 8, pointHoverRadius: 10,
+      backgroundColor: c.ubicados.map((u) => color(u.perfil)), borderColor: css("--tinta"), borderWidth: 2, order: -1,
+    });
+  }
   const op = opcionesBase({ interaction: { mode: "nearest", intersect: true } });
   op.scales.y.beginAtZero = false;
   op.scales.x.grid = { color: css("--rejilla") };
   op.plugins.legend = { display: true, position: "bottom", labels: { color: css("--tinta-2"), usePointStyle: true, boxWidth: 8 } };
-  op.plugins.tooltip.callbacks = { label: (ctx) => `${ctx.raw.id} · ${ctx.dataset.label} (${pct(ctx.raw.prob)})` };
-  op.onClick = (_, els) => { if (els.length) abrirParticipante(datasets[els[0].datasetIndex].data[els[0].index].id); };
+  const nombreP = (k) => c.perfiles.find((p) => p.perfil === k)?.nombre ?? k;
+  op.plugins.tooltip.callbacks = { label: (ctx) => ctx.raw.dias != null
+    ? `${ctx.raw.id.slice(0, 8)} (real, ${ctx.raw.dias} días) · ${nombreP(ctx.raw.perfil)} (${pct(ctx.raw.prob)})`
+    : `${ctx.raw.id} · ${ctx.dataset.label} (${pct(ctx.raw.prob)})` };
+  op.onClick = (_, els) => {
+    const x = els.length && datasets[els[0].datasetIndex].data[els[0].index];
+    // En una simulación solo los puntos reales tienen ficha
+    if (x && (!c.simulacion || x.dias != null)) abrirParticipante(x.id);
+  };
   grafico("g-mapa", { type: "scatter", data: { datasets }, options: op });
 }
 
@@ -310,7 +334,7 @@ async function cargarAnalisis() {
   const lista = await api("/api/corridas");
   $("#tabla-corridas").innerHTML = lista.length
     ? `<tr><th>Corrida</th><th>Fecha</th><th>Estado</th><th class="num">Personas</th><th class="num">Perfiles</th><th></th></tr>` +
-      lista.map((c) => `<tr><td>${c.id}</td><td>${new Date(c.creada).toLocaleString("es")}</td>
+      lista.map((c) => `<tr><td>${c.id}${c.simulacion ? ' <span class="estado sim">Simulación</span>' : ""}</td><td>${new Date(c.creada).toLocaleString("es")}</td>
         <td>${c.estado === "lista" ? '<span class="estado ok">Lista</span>' : c.estado === "error" ? `<span class="estado mal" title="${esc(c.error)}">Error</span> <span class="muted">${esc(c.error)}</span>` : '<span class="estado">Corriendo…</span>'}</td>
         <td class="num">${fmt(c.personas)}</td><td class="num">${c.k ?? "—"}${c.k_pedido ? " (fijo)" : ""}</td>
         <td><button data-borrar="${c.id}" class="peligro">Borrar</button></td></tr>`).join("")
@@ -345,6 +369,13 @@ $("#form-corrida").onsubmit = async (e) => {
   const k = new FormData(e.target).get("k");
   try {
     await api("/api/corridas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ k: k ? Number(k) : null }) });
+    cargarAnalisis();
+  } catch (err) { aviso(err.message); }
+};
+
+$("#btn-simulacion").onclick = async () => {
+  try {
+    await api("/api/corridas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ simulacion: true }) });
     cargarAnalisis();
   } catch (err) { aviso(err.message); }
 };

@@ -120,6 +120,9 @@ th[data-col]:hover { color: var(--tinta); }
 .estado { font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--borde); }
 .estado.ok { color: var(--ok); }
 .estado.mal { color: var(--critico); }
+tr.clicable { cursor: pointer; }
+.estado.sim { color: #b7791f; border-color: #b7791f; }
+.aviso.sim { border-color: #b7791f; color: #b7791f; margin-bottom: 12px; }
 
 button, input, select, textarea {
   font: inherit; color: var(--tinta); background: var(--superficie); border: 1px solid var(--eje);

@@ -87,3 +87,32 @@ def test_corrida_con_sinteticos_y_reales_mezclados():
     diario.loc[diario.participante_id < "p00020", "arquetipo"] = None  # simula datos reales sin arquetipo
     resultado, asign = calcular(diario, None, 3)
     assert "ari_arquetipos" in resultado["metricas"] and len(asign) == resultado["metricas"]["personas"]
+
+
+def test_simulacion_va_aparte_de_los_datos_reales():
+    for f in ["2026-11-01", "2026-11-02", "2026-11-03"]:
+        cliente.post("/ingest", json={"participante_id": "abc", "fecha": f, "pantalla_min": 200, "desbloqueos": 60}, headers=AUTH)
+    antes = cliente.get("/api/participantes").json()
+    resumen = cliente.get("/api/resumen").json()
+    assert cliente.post("/api/corridas", json={"simulacion": True, "personas": 10}).status_code == 422
+    cid = cliente.post("/api/corridas", json={"simulacion": True, "personas": 120}).json()["id"]
+    t = time.time()
+    for _ in range(120):
+        c = cliente.get(f"/api/corridas/{cid}").json()
+        if c["estado"] != "corriendo":
+            break
+        time.sleep(1)
+    print("simulacion seg", round(time.time() - t, 1))
+    assert c["estado"] == "lista", c["error"]
+    assert c["simulacion"] and len(c["puntos"]) == 120 and c["responsabilidad"]
+    assert "puntos_sim" not in c and "ari_arquetipos" in c["metricas"]
+    # Los participantes reales con pocos días se ubican en los perfiles de la simulación
+    ub = {u["id"]: u for u in c["ubicados"]}
+    assert "abc" in ub and ub["abc"]["dias"] == 3 and 0 <= ub["abc"]["perfil"] < c["k"]
+    assert not any(i.startswith("p0") for i in ub)
+    assert any(x["id"] == cid and x["simulacion"] for x in cliente.get("/api/corridas").json())
+    # Nada real cambia: mismos participantes y la corrida "actual" sigue siendo la real
+    assert cliente.get("/api/participantes").json() == antes
+    assert cliente.get("/api/resumen").json() == resumen
+    csv = pd.read_csv(io.StringIO(cliente.get(f"/api/exportar/perfiles.csv?corrida={cid}").text))
+    assert len(csv) == 120 and csv.participante_id.str.startswith("p").all()

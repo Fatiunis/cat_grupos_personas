@@ -65,6 +65,7 @@
       <h2>Perfiles</h2>
       <select id="sel-corrida" aria-label="Corrida"></select>
     </div>
+    <p class="aviso sim" id="aviso-sim" hidden>Simulación con personas sintéticas: sirve para ver cómo funciona el modelo, no son resultados del estudio.</p>
     <div class="tiles" id="tiles-perfiles"></div>
     <div class="tarjetas-perfil" id="tarjetas-perfil"></div>
     <div class="grid2">
@@ -85,6 +86,11 @@
       <div class="tabla-envoltorio"><table id="tabla-z"></table></div>
       <p class="muted">Azul = por encima del promedio, rojo = por debajo. Valores en desviaciones estándar.</p>
     </figure>
+    <figure class="tarjeta" id="bloque-ubicados" hidden>
+      <figcaption>Tus participantes reales en estos perfiles</figcaption>
+      <div class="tabla-envoltorio"><table id="tabla-ubicados"></table></div>
+      <p class="muted">Ubicación preliminar con los días que han llegado hasta hoy. Con pocos días puede cambiar; vuelve a correr la demostración para actualizarla.</p>
+    </figure>
     <figure class="tarjeta" id="bloque-cruce" hidden>
       <figcaption>Perfiles contra los arquetipos plantados (solo datos sintéticos)</figcaption>
       <div class="tabla-envoltorio"><table id="tabla-cruce"></table></div>
@@ -104,6 +110,8 @@
           </label>
           <button type="submit" class="primario">Correr análisis</button>
         </form>
+        <p class="muted" style="margin-top:16px">¿Aún no hay suficientes participantes? Mira cómo funciona el modelo con 300 personas sintéticas. Sale marcada como <b>Simulación</b> y no toca los datos reales.</p>
+        <button type="button" id="btn-simulacion">Ver demostración con datos sintéticos</button>
       </div>
       <div class="tarjeta">
         <h3>Cargar resultados del BFI-2</h3>
