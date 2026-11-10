@@ -17,6 +17,8 @@
     <button role="tab" data-vista="resumen" aria-selected="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Resumen</span></button>
     <button role="tab" data-vista="participantes"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.6c2.6-.3 4.8 1.2 5.5 4.4"/></svg><span>Participantes</span></button>
     <button role="tab" data-vista="perfiles"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="8" r="3"/><circle cx="17" cy="7" r="2.2"/><circle cx="15" cy="16" r="3.5"/><circle cx="6" cy="17" r="1.8"/></svg><span>Perfiles</span></button>
+    <button role="tab" data-vista="responsabilidad"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.6-3 8.4-7 10-4-1.6-7-5.4-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Responsabilidad</span></button>
+    <button role="tab" data-vista="modelo"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="18" r="2"/><circle cx="12" cy="11" r="2"/><circle cx="19" cy="5" r="2"/><path d="M6.5 16.5l4-4M13.5 9.5l4-3"/></svg><span>Modelo</span></button>
     <button role="tab" data-vista="analisis"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Análisis</span></button>
   </nav>
   <p class="pie-lateral">Datos de uso del teléfono para agrupar perfiles.</p>
@@ -117,6 +119,22 @@
     </figure>
   </section>
 
+  <section id="vista-responsabilidad" class="vista" hidden>
+    <div class="cabecera-vista">
+      <h2>Responsabilidad</h2>
+      <select id="sel-corrida-r" aria-label="Corrida"></select>
+    </div>
+    <p class="aviso sim" id="aviso-sim-r" hidden>Simulación con personas sintéticas: muestra cómo se verá esta pestaña, no son resultados del estudio.</p>
+    <p class="muted">Personas agrupadas por su puntaje de responsabilidad del BFI-2 y lo que distingue su uso del teléfono.</p>
+    <div id="resp-cuerpo" class="pila"></div>
+  </section>
+
+  <section id="vista-modelo" class="vista" hidden>
+    <h2>Modelo</h2>
+    <p class="muted">Cómo cambió el modelo según los datos con que se entrenó, y cuál queda como modelo final.</p>
+    <div id="modelo-cuerpo" class="pila"></div>
+  </section>
+
   <section id="vista-analisis" class="vista" hidden>
     <h2>Análisis</h2>
     <div class="grid2">
@@ -130,8 +148,11 @@
           </label>
           <button type="submit" class="primario">Correr análisis</button>
         </form>
-        <p class="muted" style="margin-top:16px">¿Aún no hay suficientes participantes? Mira cómo funciona el modelo con 300 personas sintéticas. Sale marcada como <b>Simulación</b> y no toca los datos reales.</p>
-        <button type="button" id="btn-simulacion">Ver demostración con datos sintéticos</button>
+        <p class="muted" style="margin-top:16px">¿Aún no hay suficientes participantes? Mira cómo funciona el modelo con 300 personas sintéticas. Sale marcada como <b>Simulación</b> y no toca los datos reales. La versión calibrada se ajusta a cifras de estudios publicados.</p>
+        <div class="fila">
+          <button type="button" data-simulacion="base">Demostración base</button>
+          <button type="button" data-simulacion="estudios">Demostración calibrada con estudios</button>
+        </div>
       </div>
       <div class="tarjeta">
         <h3>Cargar resultados del BFI-2</h3>

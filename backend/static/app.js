@@ -48,9 +48,11 @@ function grafico(id, config) {
   return estado.graficos[id];
 }
 
-function linea(id, etiquetas, valores, { formato = (v) => fmt(v), max } = {}) {
+function linea(id, etiquetas, valores, { formato = (v) => fmt(v), max, enteros = false } = {}) {
   const op = opcionesBase();
   op.scales.y.ticks.callback = formato;
+  // Conteos de personas: solo marcas enteras (sin 1, 1, 2, 2… al redondear)
+  if (enteros) op.scales.y.ticks.precision = 0;
   if (max != null) op.scales.y.max = max;
   op.plugins.tooltip.callbacks = { label: (c) => formato(c.parsed.y) };
   grafico(id, {
@@ -76,7 +78,7 @@ async function cargarResumen() {
     tile(fmt(r.con_bfi), "Con BFI-2", "cuestionario cargado"),
   ].join("");
   const f = r.serie.map((s) => s.fecha.slice(5));
-  linea("g-personas", f, r.serie.map((s) => s.personas));
+  linea("g-personas", f, r.serie.map((s) => s.personas), { enteros: true });
   linea("g-pantalla", f, r.serie.map((s) => s.pantalla_mediana), { formato: (v) => `${fmt(v)} min` });
   linea("g-respuesta", f, r.serie.map((s) => s.respuesta_diaria), { formato: pct, max: 1 });
   $("#actualizado").textContent = `Actualizado ${new Date().toLocaleTimeString("es")} · se refresca cada 30 s`;
@@ -114,6 +116,15 @@ async function cargarParticipantes() {
   pintarParticipantes();
 }
 
+// Perfil de una persona: el más probable; si la confianza es baja, también el segundo; y la marca de atípico
+function celdaPerfil(perfil, nombre, prob, perfil2, nombre2, atipico) {
+  if (perfil == null) return "";
+  let h = `<span class="punto" style="--c:${color(perfil)}"></span>${esc(nombre)}`;
+  if (prob != null && prob < 0.6 && perfil2 != null) h += ` <span class="muted">o</span> <span class="punto" style="--c:${color(perfil2)}"></span>${esc(nombre2)}`;
+  if (atipico) h += ` <span class="estado atipico" title="No se parece mucho a ningún perfil">Atípico</span>`;
+  return h;
+}
+
 function activo(p) {
   return p.ultimo_envio && Date.now() - new Date(p.ultimo_envio) < 3 * 864e5;
 }
@@ -132,7 +143,7 @@ function pintarParticipantes() {
   $("#tabla-participantes tbody").innerHTML = filas.slice(0, 500).map((p) => `<tr data-id="${esc(p.id)}">
     <td>${esc(p.id)}</td><td class="num">${p.dias}</td><td class="num">${pct(p.cobertura)}</td>
     <td>${p.ultimo_envio ? new Date(p.ultimo_envio).toLocaleString("es", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
-    <td>${p.perfil != null ? `<span class="punto" style="--c:${color(p.perfil)}"></span>${esc(p.perfil_nombre)}` : `<span class="muted">${p.dias < 14 ? "faltan días" : "sin corrida"}</span>`}</td>
+    <td>${p.perfil != null ? celdaPerfil(p.perfil, p.perfil_nombre, p.prob, p.perfil2, p.perfil2_nombre, p.atipico) : `<span class="muted">${p.dias < 14 ? "faltan días" : "sin corrida"}</span>`}</td>
     <td class="num">${p.prob != null ? pct(p.prob) : "—"}</td><td class="num">${fmt(p.bfi2, 2)}</td>
     <td>${p.excluido ? '<span class="estado mal">Excluido</span>' : activo(p) ? '<span class="estado ok">Activo</span>' : '<span class="estado">Inactivo</span>'}</td></tr>`).join("");
   $("#conteo-participantes").textContent = `${filas.length} de ${estado.participantes.length} participantes` + (filas.length > 500 ? " (se muestran 500; usa la búsqueda)" : "");
@@ -195,7 +206,7 @@ const ETIQUETAS_Z = {
 async function cargarCorridas() {
   const lista = (await api("/api/corridas")).filter((c) => c.estado === "lista");
   const sel = $("#sel-corrida");
-  sel.innerHTML = lista.map((c) => `<option value="${c.id}">${c.simulacion ? "Simulación · " : ""}Corrida ${c.id} · ${c.k} perfiles · ${new Date(c.creada).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}</option>`).join("");
+  sel.innerHTML = lista.map((c) => `<option value="${c.id}">${c.simulacion ? (c.calibracion === "estudios" ? "Simulación con estudios · " : "Simulación · ") : ""}Corrida ${c.id} · ${c.k} perfiles · ${new Date(c.creada).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}</option>`).join("");
   if (!lista.length) {
     $("#tarjetas-perfil").innerHTML = `<p class="muted">No hay corridas terminadas. Crea una en <a href="#analisis">Análisis</a>.</p>`;
     return;
@@ -226,6 +237,34 @@ const FRASES = {
   lugares_distintos_med: ["pasan por muchos lugares distintos", "se mueven por pocos lugares"],
 };
 
+// Señales para la responsabilidad, solo las que respaldan estudios publicados (ver informe):
+// [1 si lo alto favorece, -1 si lo alto juega en contra, frase a favor, frase en contra, fuentes]
+const SENALES = {
+  hora_primer_uso_med: [-1, "Empieza el día temprano", "Empieza el día tarde", "Stachl 2020; Buzoku 2025"],
+  hora_primer_uso_sd: [-1, "Horarios regulares", "Horarios que cambian mucho", "Stachl 2020"],
+  hora_inicio_sueno_sd: [-1, "Hora de dormir estable", "Hora de dormir cambiante", "Stachl 2020; Kroese 2014"],
+  uso_nocturno_min_med: [-1, "Casi sin uso de madrugada", "Uso de madrugada", "Kroese 2014; Guerreiro 2024"],
+  pct_productividad_med: [1, "Más apps de organización y trabajo", "Pocas apps de organización y trabajo", "Stachl 2020"],
+  desbloqueos_med: [-1, "Revisa el teléfono pocas veces", "Revisa el teléfono muy seguido", "Marengo 2020"],
+};
+
+function senales(z, umbral = 0.5) {
+  const favor = [], contra = [];
+  Object.entries(z || {}).filter(([v, x]) => SENALES[v] && Math.abs(x) >= umbral)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+    .forEach(([v, x]) => {
+      const aFavor = Math.sign(x) === SENALES[v][0];
+      (aFavor ? favor : contra).push({ texto: SENALES[v][aFavor ? 1 : 2], fuente: SENALES[v][3] });
+    });
+  return { favor, contra };
+}
+
+function bloqueSenales(z, umbral) {
+  const s = senales(z, umbral);
+  if (!s.favor.length && !s.contra.length) return `<p class="muted senal-vacia">Sin señales marcadas para la responsabilidad.</p>`;
+  return `<div class="senales">${s.favor.map((t) => `<span class="senal a-favor" title="${t.fuente}">+ ${t.texto}</span>`).join("")}${s.contra.map((t) => `<span class="senal en-contra" title="${t.fuente}">− ${t.texto}</span>`).join("")}</div>`;
+}
+
 function definicion(p, bfiPerfil, bfiGeneral) {
   const rasgos = Object.entries(p.z || {})
     .filter(([v, z]) => FRASES[v] && Math.abs(z) >= 0.5)
@@ -248,7 +287,8 @@ async function cargarCorrida(id) {
   $("#tiles-perfiles").innerHTML = [
     tile(fmt(m.personas), "Personas con perfil", `${m.sin_perfil_pocos_dias} sin perfil por pocos días`),
     tile(c.k, "Perfiles", c.k_pedido ? "fijado a mano" : `elegido automáticamente`),
-    tile(pct(m.baja_confianza), "Asignación dudosa", "confianza menor a 60 %"),
+    tile(pct(m.baja_confianza), "Asignación dudosa", "confianza menor a 60 %; se muestra la 2.ª opción"),
+    m.atipicos != null ? tile(fmt(m.atipicos), "Atípicos", "no se parecen mucho a ningún perfil") : "",
     m.exactitud_clasificador != null ? tile(pct(m.exactitud_clasificador), "Exactitud del clasificador", "para asignar personas nuevas") : "",
     m.r_responsabilidad != null ? tile(fmt(m.r_responsabilidad, 2), "Correlación con BFI-2", "predicción vs. cuestionario (r)") : "",
     m.ari_arquetipos != null ? tile(fmt(m.ari_arquetipos, 2), "ARI vs. arquetipos", "solo sintéticos, meta ≥ 0,7") : "",
@@ -263,6 +303,7 @@ async function cargarCorrida(id) {
       <textarea class="nombre" rows="2" data-perfil="${p.perfil}" aria-label="Nombre del perfil" title="Clic para renombrar">${esc(p.nombre)}</textarea>
       <div class="muted">${p.n} personas · confianza media ${pct(p.prob_media)}</div>
       <p class="definicion">${definicion(p, bfi.get(p.perfil), bfiGeneral)}</p>
+      ${bloqueSenales(p.z)}
       <dl>
         <dt>Pantalla al día</dt><dd>${fmt((md.pantalla_min ?? 0) / 60, 1)} h</dd>
         <dt>Desbloqueos</dt><dd>${fmt(md.desbloqueos)}</dd>
@@ -297,7 +338,7 @@ async function cargarCorrida(id) {
   $("#tabla-ubicados").innerHTML = ub.length
     ? `<tr><th>Participante</th><th class="num">Días</th><th>Perfil más parecido</th><th class="num">Confianza</th></tr>` +
       ub.sort((a, b) => b.dias - a.dias).map((u) => `<tr class="clicable" data-id="${esc(u.id)}"><td>${esc(u.id.slice(0, 8))}</td><td class="num">${u.dias}</td>` +
-        `<td><span class="punto" style="--c:${color(u.perfil)}"></span>${esc(nombreP(u.perfil))}</td><td class="num">${pct(u.prob)}</td></tr>`).join("")
+        `<td>${celdaPerfil(u.perfil, nombreP(u.perfil), u.prob, u.perfil2, nombreP(u.perfil2), u.atipico)}</td><td class="num">${pct(u.prob)}</td></tr>`).join("")
     : `<tr><td class="muted">Aún no hay días de participantes reales para ubicar.</td></tr>`;
   document.querySelectorAll("#tabla-ubicados tr[data-id]").forEach((tr) => (tr.onclick = () => abrirParticipante(tr.dataset.id)));
 
@@ -413,12 +454,15 @@ $("#form-corrida").onsubmit = async (e) => {
   } catch (err) { aviso(err.message); }
 };
 
-$("#btn-simulacion").onclick = async () => {
+async function correrSimulacion(calibracion) {
+  await api("/api/corridas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ simulacion: true, calibracion }) });
+}
+document.querySelectorAll("[data-simulacion]").forEach((b) => (b.onclick = async () => {
   try {
-    await api("/api/corridas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ simulacion: true }) });
-    cargarAnalisis();
+    await correrSimulacion(b.dataset.simulacion);
+    if (location.hash === "#modelo") cargarModelo(); else cargarAnalisis();
   } catch (err) { aviso(err.message); }
-};
+}));
 
 $("#form-etiquetas").onsubmit = async (e) => {
   e.preventDefault();
@@ -428,9 +472,117 @@ $("#form-etiquetas").onsubmit = async (e) => {
   } catch (err) { $("#res-etiquetas").textContent = err.message; }
 };
 
+// ---------- Responsabilidad ----------
+
+const NIVEL_INFO = {
+  baja: { nombre: "Baja", color: "--s5" },
+  media_baja: { nombre: "Media baja", color: "--s2" },
+  media_alta: { nombre: "Media alta", color: "--s7" },
+  alta: { nombre: "Alta", color: "--s1" },
+};
+const rangoNivel = (g) => `BFI-2 de ${fmt(g.rango[0], 1)} a ${fmt(g.rango[1], 1)}`;
+
+async function cargarResponsabilidad() {
+  const lista = (await api("/api/corridas")).filter((c) => c.estado === "lista");
+  const sel = $("#sel-corrida-r");
+  const actual = Number(sel.value) || (lista.find((c) => !c.simulacion) || lista[0])?.id;
+  sel.innerHTML = lista.map((c) => `<option value="${c.id}">${c.simulacion ? (c.calibracion === "estudios" ? "Simulación con estudios · " : "Simulación · ") : ""}Corrida ${c.id} · ${new Date(c.creada).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}</option>`).join("");
+  if (!actual) {
+    $("#resp-cuerpo").innerHTML = `<div class="tarjeta"><p class="muted">Todavía no hay corridas. Ve a <a href="#analisis">Análisis</a> y corre la demostración o el análisis.</p></div>`;
+    return;
+  }
+  sel.value = actual;
+  const c = await api(`/api/corridas/${actual}`);
+  $("#aviso-sim-r").hidden = !c.simulacion;
+  const n = c.niveles;
+  if (!n || !n.grupos) {
+    $("#resp-cuerpo").innerHTML = `<div class="tarjeta"><h3>Faltan cuestionarios</h3><p class="muted">Los niveles se forman con el BFI-2. Esta corrida tiene ${n?.con_bfi ?? 0} personas con cuestionario y se necesitan 30 (faltan ${n?.faltan ?? 30}). Mientras tanto puedes ver cómo se vería con la demostración.</p></div>`;
+    return;
+  }
+  const nombreP = (k) => c.perfiles.find((p) => p.perfil === Number(k))?.nombre ?? `Perfil ${k}`;
+  const m = c.metricas;
+  const tiles = [
+    tile(fmt(n.con_bfi), "Personas con BFI-2", c.simulacion ? "sintéticas" : "con 14 días o más"),
+    ...n.grupos.map((g) => tile(fmt(g.n), `Responsabilidad ${NIVEL_INFO[g.nivel].nombre.toLowerCase()}`, `${pct(g.n / n.con_bfi)} · media ${fmt(g.media_bfi, 2)}`)),
+    m.r_responsabilidad != null ? tile(fmt(m.r_responsabilidad, 2), "Qué tanto lo predice el uso", `correlación; error típico ±${fmt(n.rmse, 1)} puntos`) : "",
+  ].join("");
+  const tarjetas = n.grupos.map((g) => {
+    const info = NIVEL_INFO[g.nivel], md = g.medianas || {};
+    const total = Object.values(g.perfiles).reduce((a, b) => a + b, 0);
+    const mezcla = Object.entries(g.perfiles).sort((a, b) => b[1] - a[1]).map(([p, k]) => `<li style="--c:${color(Number(p))}">
+      <div><span class="punto"></span>${esc(nombreP(p))} <span class="muted">${pct(k / total)}</span></div>
+      <div class="barra-mini"><span style="width:${(100 * k) / total}%"></span></div></li>`).join("");
+    return `<div class="tarjeta nivel" style="--c:var(${info.color})">
+      <div class="nivel-cabeza"><h3>Responsabilidad ${info.nombre.toLowerCase()}</h3><span class="muted">${rangoNivel(g)} · ${g.n} personas</span></div>
+      ${bloqueSenales(g.z, 0.3)}
+      <dl>
+        <dt>Pantalla al día</dt><dd>${fmt((md.pantalla_min ?? 0) / 60, 1)} h</dd>
+        <dt>Desbloqueos</dt><dd>${fmt(md.desbloqueos)}</dd>
+        <dt>Uso nocturno (0–5 h)</dt><dd>${fmt(md.uso_nocturno_min)} min</dd>
+        <dt>Primer / último uso</dt><dd>${hora(md.hora_primer_uso)} / ${hora(md.hora_ultimo_uso)}</dd>
+        ${md.q_cumplimiento != null ? `<dt>Cumplimiento diario (1–5)</dt><dd>${fmt(md.q_cumplimiento, 1)}</dd>` : ""}
+      </dl>
+      <h4>Perfiles de uso en este nivel</h4><ul class="mini-perfiles">${mezcla}</ul></div>`;
+  }).join("");
+  const est = n.estimados || [];
+  const tablaEst = `<div class="tarjeta"><h3>${c.simulacion ? "Tus participantes: nivel estimado por su uso" : "Participantes sin BFI-2: nivel estimado por su uso"}</h3>
+    <p class="muted">Estimación a partir del uso del teléfono, con un error típico de ±${fmt(n.rmse, 1)} puntos. No reemplaza el cuestionario.</p>
+    ${est.length ? `<div class="tabla-envoltorio"><table><tr><th>Participante</th><th class="num">BFI-2 estimado</th><th>Nivel estimado</th></tr>${est.sort((a, b) => b.valor - a.valor).map((e) => `<tr class="clicable" data-id="${esc(e.id)}"><td>${esc(e.id.slice(0, 8))}</td><td class="num">${fmt(e.valor, 1)}</td><td><span class="punto" style="--c:var(${NIVEL_INFO[e.nivel].color})"></span>${NIVEL_INFO[e.nivel].nombre}</td></tr>`).join("")}</table></div>` : `<p class="muted">No hay personas para estimar.</p>`}</div>`;
+  $("#resp-cuerpo").innerHTML = `<div class="tiles">${tiles}</div><div class="niveles">${tarjetas}</div>${tablaEst}
+    <p class="muted">Los cuatro niveles son los cuartiles del grupo: cada uno junta a un cuarto de las personas con BFI-2 (cortes en ${n.cortes.map((x) => fmt(x, 2)).join(", ")}). Las señales a favor y en contra vienen de estudios publicados (pasa el cursor sobre cada una para ver la fuente); describen tendencias del grupo, no juicios sobre cada persona.</p>`;
+  document.querySelectorAll("#resp-cuerpo tr[data-id]").forEach((tr) => (tr.onclick = () => abrirParticipante(tr.dataset.id).catch(() => {})));
+}
+
+// ---------- Modelo ----------
+
+const ETAPAS = {
+  base: { titulo: "1 · Simulación base", datos: "300 personas sintéticas con seis arquetipos bien separados",
+    cambio: "Primer ensayo: arquetipos marcados y una relación con la responsabilidad que depende del arquetipo. Sirve para comprobar que el método recupera grupos cuando existen." },
+  estudios: { titulo: "2 · Simulación calibrada con estudios", datos: "300 personas sintéticas ajustadas a cifras publicadas",
+    cambio: "Uso diario de unas 4 h y unos 80 desbloqueos (Andrews 2015, Bentley 2015, dscout 2016), arquetipos más mezclados entre sí, más de la mitad de usos cortos y una responsabilidad propia de cada persona que adelanta horarios y reduce el uso de madrugada con un efecto pequeño (Stachl 2020: r de 0,31)." },
+  reales: { titulo: "3 · Datos reales", datos: "Participantes reales con 14 días o más",
+    cambio: "El análisis con las personas que mandaron datos. Hoy son muy pocas para formar perfiles propios, por eso se ubican en el modelo calibrado." },
+};
+
+async function cargarModelo() {
+  const m = await api("/api/modelo");
+  const filas = m.etapas.map((e) => {
+    const info = ETAPAS[e.tipo];
+    if (!e.id) return `<tr><td><b>${info.titulo}</b><div class="muted">${info.datos}</div></td><td colspan="6" class="muted">Sin corrida todavía${e.tipo !== "reales" ? ` · <button type="button" class="enlace" data-sim-modelo="${e.tipo}">Correrla ahora</button>` : ""}</td></tr>`;
+    const x = e.metricas;
+    return `<tr><td><b>${info.titulo}</b><div class="muted">${info.datos} · corrida ${e.id}</div></td>
+      <td class="num">${fmt(x.personas)}</td><td class="num">${fmt(e.k)}</td>
+      <td class="num">${x.ari_arquetipos != null ? fmt(x.ari_arquetipos, 2) : "—"}</td>
+      <td class="num">${x.r_responsabilidad != null ? fmt(x.r_responsabilidad, 2) : "—"}</td>
+      <td class="num">${x.baja_confianza != null ? pct(x.baja_confianza) : "—"}</td>
+      <td class="num">${fmt(x.atipicos)}</td></tr>`;
+  }).join("");
+  const cambios = m.etapas.map((e) => `<li><b>${ETAPAS[e.tipo].titulo}.</b> ${ETAPAS[e.tipo].cambio}</li>`).join("");
+  const fin = m.etapas.find((e) => e.tipo === m.final);
+  let final = `<div class="tarjeta"><h3>Modelo final</h3><p class="muted">Corre la simulación calibrada con estudios para ver el modelo final.</p></div>`;
+  if (fin && fin.id) {
+    const total = fin.perfiles.reduce((a, p) => a + p.n, 0);
+    const perfiles = fin.perfiles.sort((a, b) => b.n - a.n).map((p) => `<li style="--c:${color(p.perfil)}">
+      <div><span class="punto"></span>${esc(p.nombre)} <span class="muted">${pct(p.n / total)}</span></div>
+      <div class="barra-mini"><span style="width:${(100 * p.n) / total}%"></span></div></li>`).join("");
+    const ub = fin.ubicados.length ? `<table><tr><th>Participante</th><th class="num">Días</th><th>Perfil</th><th class="num">Confianza</th></tr>${fin.ubicados.map((u) => `<tr class="clicable" data-id="${esc(u.id)}"><td>${esc(u.id.slice(0, 8))}</td><td class="num">${fmt(u.dias)}</td>
+      <td><span class="punto" style="--c:${color(u.perfil)}"></span>${esc(u.nombre)}${u.atipico ? ' <span class="estado atipico">Atípico</span>' : ""}</td><td class="num">${pct(u.prob)}</td></tr>`).join("")}</table>` : `<p class="muted">Aún no hay participantes reales para ubicar.</p>`;
+    final = `<div class="grid2"><div class="tarjeta"><h3>Modelo final: ${fmt(fin.k)} perfiles</h3>
+      <p class="muted">Simulación calibrada con estudios (corrida ${fin.id}). Es el modelo que se usa para ubicar a los participantes reales mientras no haya suficientes para formar perfiles propios.</p>
+      <ul class="mini-perfiles">${perfiles}</ul></div>
+      <div class="tarjeta"><h3>Dónde quedan tus participantes</h3><p class="muted">La marca de atípico solo se da con 14 días o más.</p><div class="tabla-envoltorio tabla-ubicados">${ub}</div></div></div>`;
+  }
+  $("#modelo-cuerpo").innerHTML = `<div class="tarjeta"><h3>Cómo cambió el modelo</h3>
+    <div class="tabla-envoltorio"><table class="tabla-etapas"><tr><th>Etapa</th><th class="num">Personas</th><th class="num">Perfiles</th><th class="num" title="Qué tanto coinciden los perfiles con los arquetipos plantados (0 a 1)">Coincide con arquetipos</th><th class="num" title="Correlación entre la responsabilidad estimada por el uso y la del BFI-2">Predice responsab.</th><th class="num">Dudosas</th><th class="num">Atípicos</th></tr>${filas}</table></div>
+    <p class="muted">La coincidencia con arquetipos solo existe en simulaciones. En estudios con datos reales la responsabilidad se predice con r cerca de 0,3 (Stachl 2020); una cifra mucho más alta en la simulación indica que está demasiado ordenada.</p></div>
+    <div class="tarjeta"><h3>Qué cambió en cada etapa</h3><ul class="lista-cambios">${cambios}</ul></div>${final}`;
+  document.querySelectorAll("#modelo-cuerpo [data-sim-modelo]").forEach((b) => (b.onclick = () => correrSimulacion(b.dataset.simModelo).then(() => aviso("Corriendo… vuelve a abrir esta pestaña en un minuto.")).catch((e) => aviso(e.message))));
+  document.querySelectorAll("#modelo-cuerpo tr[data-id]").forEach((tr) => (tr.onclick = () => abrirParticipante(tr.dataset.id).catch(() => {})));
+}
+
 // ---------- Navegación ----------
 
-const cargadores = { resumen: cargarResumen, participantes: cargarParticipantes, perfiles: cargarCorridas, analisis: cargarAnalisis };
+const cargadores = { resumen: cargarResumen, participantes: cargarParticipantes, perfiles: cargarCorridas, responsabilidad: cargarResponsabilidad, modelo: cargarModelo, analisis: cargarAnalisis };
 let refresco = null;
 
 async function mostrar(vista) {
@@ -451,6 +603,7 @@ $("#buscar").oninput = pintarParticipantes;
 $("#filtro-perfil").onchange = pintarParticipantes;
 $("#filtro-estado").onchange = pintarParticipantes;
 $("#sel-corrida").onchange = (e) => cargarCorrida(Number(e.target.value));
+$("#sel-corrida-r").onchange = () => cargarResponsabilidad().catch((e) => aviso(e.message));
 $("#tabla-participantes thead").onclick = (e) => {
   const col = e.target.dataset.col;
   if (!col) return;

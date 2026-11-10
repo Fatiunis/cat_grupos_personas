@@ -84,7 +84,7 @@ figcaption { font-weight: 700; margin-bottom: 12px; }
 .lienzo { position: relative; height: 220px; }
 .lienzo.alto { height: 320px; }
 
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; }
 .tile {
   background: var(--superficie); border: 1px solid var(--borde); border-radius: 14px; padding: 16px 18px;
   box-shadow: var(--sombra); display: flex; flex-direction: column;
@@ -129,6 +129,21 @@ tr.clicable { cursor: pointer; }
 .mini-perfiles li > div:first-child { font-weight: 600; }
 .barra-mini { height: 6px; border-radius: 99px; background: var(--rejilla); margin: 6px 0 3px; overflow: hidden; }
 .barra-mini span { display: block; height: 100%; border-radius: 99px; background: var(--c); }
+.estado.atipico { color: #6b4f8a; border-color: #cbbbe0; background: #f3eefa; margin-left: 4px; }
+.senales { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.senal { font-size: 12.5px; font-weight: 700; padding: 3px 9px; border-radius: 99px; }
+.senal.a-favor { background: #e3eeee; color: #24575a; }
+.senal.en-contra { background: #f6e4dc; color: #8f4329; }
+.senal-vacia { margin: 4px 0 10px; }
+.niveles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 20px; }
+.nivel { border-top: 4px solid var(--c); }
+.nivel-cabeza { margin-bottom: 10px; }
+.nivel-cabeza h3 { font: 600 19px/1.25 "Fraunces", Georgia, serif; margin: 0 0 2px; }
+.nivel dl { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin: 6px 0 14px; font-size: 13px; }
+.nivel dt { color: var(--tinta-2); }
+.nivel dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.nivel h4 { font-size: 13px; margin: 0; color: var(--tinta-2); }
+.pila { display: flex; flex-direction: column; gap: 20px; }
 .ver-mas { font-weight: 700; text-decoration: none; font-size: 14px; }
 .definicion { margin: 10px 0 4px; font-size: 14px; color: var(--tinta-2); line-height: 1.5; }
 .definicion b { color: var(--tinta); }
@@ -181,3 +196,11 @@ nav { max-width: 100%; }
 #perfiles-mini td { white-space: normal; }
 .filtros { max-width: 100%; }
 .filtros > * { flex: 1 1 140px; min-width: 0; }
+
+/* Pestaña Modelo */
+.lista-cambios { margin: 0; padding-left: 18px; display: grid; gap: 10px; line-height: 1.5; }
+button.enlace { background: none; border: 0; padding: 0; color: var(--acento); text-decoration: underline; cursor: pointer; font: inherit; }
+.tabla-etapas th { white-space: normal; vertical-align: bottom; }
+.tabla-etapas th:not(:first-child), .tabla-etapas td:not(:first-child) { width: 11%; }
+.tabla-etapas td:first-child { white-space: normal; min-width: 220px; }
+.tabla-ubicados td { white-space: normal; }

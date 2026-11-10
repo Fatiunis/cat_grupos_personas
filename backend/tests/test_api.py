@@ -118,6 +118,25 @@ def test_simulacion_va_aparte_de_los_datos_reales():
     assert len(csv) == 120 and csv.participante_id.str.startswith("p").all()
 
 
+def test_simulacion_calibrada_con_estudios_y_comparacion_de_modelos():
+    assert cliente.post("/api/corridas", json={"simulacion": True, "calibracion": "otra"}).status_code == 422
+    cid = cliente.post("/api/corridas", json={"simulacion": True, "personas": 120, "calibracion": "estudios"}).json()["id"]
+    for _ in range(120):
+        c = cliente.get(f"/api/corridas/{cid}").json()
+        if c["estado"] != "corriendo":
+            break
+        time.sleep(1)
+    assert c["estado"] == "lista", c["error"]
+    assert c["calibracion"] == "estudios"
+    niv = c["niveles"]
+    assert niv["criterio"] == "cuartiles" and len(niv["cortes"]) == 3 and len(niv["grupos"]) == 4
+    assert sum(g["n"] for g in niv["grupos"]) == niv["con_bfi"]
+    m = cliente.get("/api/modelo").json()
+    etapas = {e["tipo"]: e for e in m["etapas"]}
+    assert m["final"] == "estudios" and etapas["estudios"]["id"] == cid
+    assert etapas["estudios"]["k"] == c["k"] and "ari_arquetipos" in etapas["estudios"]["metricas"]
+
+
 def test_pocos_dias_entre_semana_da_mensaje_claro():
     # Antes fallaba con el error "True" cuando nadie tenía días de fin de semana
     from app.analisis import calcular
