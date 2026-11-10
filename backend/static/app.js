@@ -82,7 +82,7 @@ async function cargarResumen() {
   ].join("");
   const f = r.serie.map((s) => s.fecha.slice(5));
   linea("g-personas", f, r.serie.map((s) => s.personas), { enteros: true });
-  linea("g-pantalla", f, r.serie.map((s) => s.pantalla_mediana), { formato: (v) => `${fmt(v)} min` });
+  linea("g-pantalla", f, r.serie.map((s) => (s.pantalla_mediana == null ? null : s.pantalla_mediana / 60)), { formato: (v) => `${fmt(v, Number.isInteger(v) ? 0 : 1)} h` });
   linea("g-respuesta", f, r.serie.map((s) => s.respuesta_diaria), { formato: pct, max: 1 });
   $("#actualizado").textContent = `Actualizado ${new Date().toLocaleTimeString("es")} · se refresca cada 30 s`;
 
@@ -161,7 +161,7 @@ async function abrirParticipante(id) {
   $("#detalle-cuerpo").innerHTML = `
     <h2>${esc(p.id)}</h2>
     <p class="muted">${p.dias.length} días · ${actual?.perfil_nombre ? `perfil actual: <span class="punto" style="--c:${color(actual.perfil)}"></span>${esc(actual.perfil_nombre)} (${pct(actual.prob)} de confianza)` : "sin perfil todavía"}</p>
-    <figure class="tarjeta"><figcaption>Minutos de pantalla por día</figcaption><div class="lienzo"><canvas id="g-det-pantalla"></canvas></div></figure>
+    <figure class="tarjeta"><figcaption>Horas de pantalla por día</figcaption><div class="lienzo"><canvas id="g-det-pantalla"></canvas></div></figure>
     <figure class="tarjeta"><figcaption>Tiempo por categoría (total del periodo)</figcaption><div class="lienzo"><canvas id="g-det-cat"></canvas></div></figure>
     ${p.historial.length > 1 ? `<div class="tarjeta"><h3>Perfil en cada corrida</h3><table>${p.historial.map((h) => `<tr><td>Análisis ${h.corrida}</td><td>${esc(h.nombre)}</td><td class="num">${pct(h.prob)}</td></tr>`).join("")}</table></div>` : ""}
     <div class="tarjeta">
@@ -175,7 +175,7 @@ async function abrirParticipante(id) {
         <button id="det-borrar" class="peligro">Borrar todos sus datos (retiro)</button></div>
     </div>`;
   $("#detalle").showModal();
-  linea("g-det-pantalla", p.dias.map((d) => d.fecha.slice(5)), p.dias.map((d) => d.pantalla_min), { formato: (v) => `${fmt(v)} min` });
+  linea("g-det-pantalla", p.dias.map((d) => d.fecha.slice(5)), p.dias.map((d) => (d.pantalla_min == null ? null : d.pantalla_min / 60)), { formato: (v) => `${fmt(v, Number.isInteger(v) ? 0 : 1)} h` });
   const op = opcionesBase({ indexAxis: "y" });
   op.scales.x.ticks.callback = pct;
   op.scales.x.grid = { color: css("--rejilla") };
