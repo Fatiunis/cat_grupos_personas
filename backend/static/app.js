@@ -62,6 +62,9 @@ function linea(id, etiquetas, valores, { formato = (v) => fmt(v), max, enteros =
   });
 }
 
+// "Análisis 7 (simulación con estudios)": número del análisis guardado y con qué datos se hizo
+const etiquetaCorrida = (c) => `Análisis ${c.id} (${!c.simulacion ? "tus participantes" : c.calibracion === "estudios" ? "simulación con estudios" : "simulación base"})`;
+
 // ---------- Resumen ----------
 
 function tile(valor, etiqueta, sub = "") {
@@ -96,7 +99,7 @@ async function cargarResumen() {
   const reales = new Map();
   (c.ubicados || []).forEach((u) => reales.set(u.perfil, (reales.get(u.perfil) || 0) + 1));
   mini.innerHTML = `<h3>${c.simulacion ? "Perfiles de la demostración" : "Perfiles actuales"}</h3>
-    <p class="muted">${c.simulacion ? '<span class="estado sim">Simulación</span> ' : ""}Corrida ${c.id} · ${new Date(c.creada).toLocaleDateString("es")}</p>
+    <p class="muted">${c.simulacion ? '<span class="estado sim">Simulación</span> ' : ""}Análisis ${c.id} · ${new Date(c.creada).toLocaleDateString("es")}</p>
     <ul class="mini-perfiles">${c.perfiles.map((p) => `<li style="--c:${color(p.perfil)}">
       <div><span class="punto"></span>${esc(p.nombre)}</div>
       <div class="barra-mini"><span style="width:${(100 * p.n) / total}%"></span></div>
@@ -160,7 +163,7 @@ async function abrirParticipante(id) {
     <p class="muted">${p.dias.length} días · ${actual?.perfil_nombre ? `perfil actual: <span class="punto" style="--c:${color(actual.perfil)}"></span>${esc(actual.perfil_nombre)} (${pct(actual.prob)} de confianza)` : "sin perfil todavía"}</p>
     <figure class="tarjeta"><figcaption>Minutos de pantalla por día</figcaption><div class="lienzo"><canvas id="g-det-pantalla"></canvas></div></figure>
     <figure class="tarjeta"><figcaption>Tiempo por categoría (total del periodo)</figcaption><div class="lienzo"><canvas id="g-det-cat"></canvas></div></figure>
-    ${p.historial.length > 1 ? `<div class="tarjeta"><h3>Perfil en cada corrida</h3><table>${p.historial.map((h) => `<tr><td>Corrida ${h.corrida}</td><td>${esc(h.nombre)}</td><td class="num">${pct(h.prob)}</td></tr>`).join("")}</table></div>` : ""}
+    ${p.historial.length > 1 ? `<div class="tarjeta"><h3>Perfil en cada corrida</h3><table>${p.historial.map((h) => `<tr><td>Análisis ${h.corrida}</td><td>${esc(h.nombre)}</td><td class="num">${pct(h.prob)}</td></tr>`).join("")}</table></div>` : ""}
     <div class="tarjeta">
       <h3>Gestión</h3>
       <div class="fila">
@@ -206,7 +209,7 @@ const ETIQUETAS_Z = {
 async function cargarCorridas() {
   const lista = (await api("/api/corridas")).filter((c) => c.estado === "lista");
   const sel = $("#sel-corrida");
-  sel.innerHTML = lista.map((c) => `<option value="${c.id}">${c.simulacion ? (c.calibracion === "estudios" ? "Simulación con estudios · " : "Simulación · ") : ""}Corrida ${c.id} · ${c.k} perfiles · ${new Date(c.creada).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}</option>`).join("");
+  sel.innerHTML = lista.map((c) => `<option value="${c.id}">${etiquetaCorrida(c)} · ${c.k} grupos · ${new Date(c.creada).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}</option>`).join("");
   if (!lista.length) {
     $("#tarjetas-perfil").innerHTML = `<p class="muted">No hay corridas terminadas. Crea una en <a href="#analisis">Análisis</a>.</p>`;
     return;
@@ -486,7 +489,7 @@ async function cargarResponsabilidad() {
   const lista = (await api("/api/corridas")).filter((c) => c.estado === "lista");
   const sel = $("#sel-corrida-r");
   const actual = Number(sel.value) || (lista.find((c) => !c.simulacion) || lista[0])?.id;
-  sel.innerHTML = lista.map((c) => `<option value="${c.id}">${c.simulacion ? (c.calibracion === "estudios" ? "Simulación con estudios · " : "Simulación · ") : ""}Corrida ${c.id} · ${new Date(c.creada).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}</option>`).join("");
+  sel.innerHTML = lista.map((c) => `<option value="${c.id}">${etiquetaCorrida(c)} · ${new Date(c.creada).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}</option>`).join("");
   if (!actual) {
     $("#resp-cuerpo").innerHTML = `<div class="tarjeta"><p class="muted">Todavía no hay corridas. Ve a <a href="#analisis">Análisis</a> y corre la demostración o el análisis.</p></div>`;
     return;
