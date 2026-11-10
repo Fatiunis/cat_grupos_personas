@@ -116,3 +116,16 @@ def test_simulacion_va_aparte_de_los_datos_reales():
     assert cliente.get("/api/resumen").json() == resumen
     csv = pd.read_csv(io.StringIO(cliente.get(f"/api/exportar/perfiles.csv?corrida={cid}").text))
     assert len(csv) == 120 and csv.participante_id.str.startswith("p").all()
+
+
+def test_pocos_dias_entre_semana_da_mensaje_claro():
+    # Antes fallaba con el error "True" cuando nadie tenía días de fin de semana
+    from app.analisis import calcular
+    d = pd.DataFrame([dict(participante_id="a", fecha=f"2026-11-0{i}", pantalla_min=100, bateria_min_pct=50,
+                           hora_primer_uso=7, hora_ultimo_uso=23) for i in range(2, 7)])
+    try:
+        calcular(d)
+    except ValueError as e:
+        assert "se necesitan 30" in str(e)
+    else:
+        raise AssertionError("debía pedir más personas")

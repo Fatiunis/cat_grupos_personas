@@ -13,6 +13,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import RobustScaler
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
+from threadpoolctl import threadpool_limits
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ml"))
 from pipeline import DIAS_MINIMOS, describir_perfiles, elegir_k, features_por_persona, quitar_redundantes  # noqa: E402
@@ -216,7 +217,8 @@ def _corrida_simulada(db, corrida, sim):
 
 def ejecutar_corrida(corrida_id, session_factory):
     """Pensado para correr en segundo plano: lee los datos, calcula y guarda."""
-    with session_factory() as db:
+    # Con un solo hilo el cálculo es varias veces más rápido en servidores con poca CPU
+    with threadpool_limits(1), session_factory() as db:
         corrida = db.get(Corrida, corrida_id)
         sim = (corrida.resultado or {}).get("simulacion")
         try:

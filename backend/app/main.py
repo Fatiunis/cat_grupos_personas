@@ -26,6 +26,13 @@ from .db import Base, SessionLocal, engine, get_db
 from .models import Asignacion, Corrida, Dia, Participante, Retirado, ahora
 
 Base.metadata.create_all(engine)
+
+# Una corrida en segundo plano muere si el servidor se reinicia (Render lo hace al desplegar o tras
+# estar inactivo); al arrancar se marcan como interrumpidas para que no queden "corriendo" para siempre.
+with SessionLocal() as _db:
+    for _c in _db.scalars(select(Corrida).where(Corrida.estado == "corriendo")):
+        _c.estado, _c.error = "error", "Se interrumpió porque el servidor se reinició. Vuelve a correrla."
+    _db.commit()
 app = FastAPI(title="Perfiles de uso")
 STATIC = Path(__file__).resolve().parents[1] / "static"
 basic = HTTPBasic(auto_error=False)

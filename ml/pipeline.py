@@ -48,7 +48,7 @@ def features_por_persona(diario, dias_minimos=DIAS_MINIMOS):
     feats = pd.concat([g.median().add_suffix("_med"), g.std().add_suffix("_sd")], axis=1)
     # Diferencia semana vs fin de semana en las variables de horario
     for c in ["hora_primer_uso", "hora_ultimo_uso", "pantalla_min"]:
-        s = d.groupby(["participante_id", "finde"])[c].median().unstack()
+        s = d.groupby(["participante_id", "finde"])[c].median().unstack().reindex(columns=[False, True])
         feats[f"{c}_dif_finde"] = (s[True] - s[False]).reindex(feats.index)
     feats["dias_validos"] = dias.reindex(feats.index)
     # Logaritmo para tiempos y conteos sesgados
