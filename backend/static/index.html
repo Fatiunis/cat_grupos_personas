@@ -46,6 +46,9 @@
       <h2>Participantes</h2>
       <div class="filtros">
         <input id="buscar" type="search" placeholder="Buscar P01 o código" aria-label="Buscar ID">
+        <select id="filtro-nivel" aria-label="Filtrar por responsabilidad"><option value="">Toda responsabilidad</option>
+          <option value="baja">Baja</option><option value="media_baja">Media baja</option><option value="media_alta">Media alta</option>
+          <option value="alta">Alta</option><option value="sin">Sin nivel</option></select>
         <select id="filtro-perfil" aria-label="Filtrar por perfil"><option value="">Todos los perfiles</option></select>
         <select id="filtro-estado" aria-label="Filtrar por estado">
           <option value="">Todos</option><option value="activo">Activos</option>
@@ -56,9 +59,9 @@
     <div class="tabla-envoltorio">
       <table id="tabla-participantes">
         <thead><tr>
-          <th data-col="alias">Participante</th><th data-col="dias" class="num">Días</th><th data-col="cobertura" class="num">Cobertura</th>
-          <th data-col="ultimo_envio">Último envío</th><th data-col="perfil">Perfil</th><th data-col="prob" class="num">Confianza</th>
-          <th data-col="bfi2" class="num">BFI-2</th><th data-col="excluido">Estado</th>
+          <th data-col="alias">Participante</th><th data-col="nivel_orden">Responsabilidad</th><th data-col="perfil">Perfil de uso</th>
+          <th data-col="dias" class="num">Días</th><th data-col="cobertura" class="num">Cobertura</th>
+          <th data-col="ultimo_envio">Último envío</th><th data-col="bfi2" class="num">BFI-2</th><th data-col="excluido">Estado</th>
         </tr></thead>
         <tbody></tbody>
       </table>

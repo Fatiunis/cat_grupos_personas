@@ -119,7 +119,7 @@ async function cargarResumen() {
 // ---------- Participantes ----------
 
 async function cargarParticipantes() {
-  estado.participantes = await api("/api/participantes");
+  estado.participantes = (await api("/api/participantes")).map((p) => ({ ...p, nivel_orden: p.nivel ? NIVELES_ORDEN.indexOf(p.nivel) : null }));
   const perfiles = [...new Map(estado.participantes.filter((p) => p.perfil != null).map((p) => [p.perfil, p.perfil_nombre])).entries()].sort((a, b) => a[0] - b[0]);
   const sel = $("#filtro-perfil"), actual = sel.value;
   sel.innerHTML = `<option value="">Todos los perfiles</option><option value="sin">Sin perfil</option>` +
@@ -137,26 +137,38 @@ function celdaPerfil(perfil, nombre, prob, perfil2, nombre2, atipico) {
   return h;
 }
 
+const NIVELES_ORDEN = ["baja", "media_baja", "media_alta", "alta"];
+
+// Clasificación principal del participante: su nivel de responsabilidad
+function celdaNivel(p) {
+  if (!p.nivel) return `<span class="muted">${p.dias < 14 ? "faltan días" : "sin nivel"}</span>`;
+  const info = NIVEL_INFO[p.nivel];
+  const fuente = p.nivel_fuente === "cuestionario" ? "por cuestionario" : `estimado por su uso (${fmt(p.nivel_valor, 1)})`;
+  return `<span class="nivel-chip" style="--c:var(${info.color})">${info.nombre}</span> <span class="fuente">${fuente}</span>`;
+}
+
 function activo(p) {
   return p.ultimo_envio && Date.now() - new Date(p.ultimo_envio) < 3 * 864e5;
 }
 
 function pintarParticipantes() {
-  const q = $("#buscar").value.trim().toLowerCase(), fp = $("#filtro-perfil").value, fe = $("#filtro-estado").value;
+  const q = $("#buscar").value.trim().toLowerCase(), fp = $("#filtro-perfil").value, fe = $("#filtro-estado").value, fn = $("#filtro-nivel").value;
   const { col, asc } = estado.orden;
   const filas = estado.participantes
     .filter((p) => !q || p.id.toLowerCase().includes(q) || (p.alias || "").toLowerCase().includes(q))
     .filter((p) => !fp || (fp === "sin" ? p.perfil == null : String(p.perfil) === fp))
+    .filter((p) => !fn || (fn === "sin" ? !p.nivel : p.nivel === fn))
     .filter((p) => !fe || (fe === "excluido" ? p.excluido : fe === "activo" ? activo(p) && !p.excluido : !activo(p)))
     .sort((a, b) => {
       const x = a[col] ?? -Infinity, y = b[col] ?? -Infinity;
       return (x > y ? 1 : x < y ? -1 : 0) * (asc ? 1 : -1);
     });
   $("#tabla-participantes tbody").innerHTML = filas.slice(0, 500).map((p) => `<tr data-id="${esc(p.id)}">
-    <td>${p.alias ? `<b>${esc(p.alias)}</b> <span class="codigo">${esc(p.id)}</span>` : esc(p.id)}</td><td class="num">${p.dias}</td><td class="num">${pct(p.cobertura)}</td>
+    <td>${p.alias ? `<b>${esc(p.alias)}</b> <span class="codigo">${esc(p.id)}</span>` : esc(p.id)}</td><td>${celdaNivel(p)}</td>
+    <td class="secundario">${p.perfil != null ? celdaPerfil(p.perfil, p.perfil_nombre, p.prob, p.perfil2, p.perfil2_nombre, p.atipico) + ` <span class="fuente">${pct(p.prob)}${p.perfil_fuente === "modelo" ? " · modelo calibrado" : ""}</span>` : `<span class="muted">${p.dias < 14 ? "faltan días" : "sin corrida"}</span>`}</td>
+    <td class="num">${p.dias}</td><td class="num">${pct(p.cobertura)}</td>
     <td>${p.ultimo_envio ? new Date(p.ultimo_envio).toLocaleString("es", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
-    <td>${p.perfil != null ? celdaPerfil(p.perfil, p.perfil_nombre, p.prob, p.perfil2, p.perfil2_nombre, p.atipico) : `<span class="muted">${p.dias < 14 ? "faltan días" : "sin corrida"}</span>`}</td>
-    <td class="num">${p.prob != null ? pct(p.prob) : "—"}</td><td class="num">${fmt(p.bfi2, 2)}</td>
+    <td class="num">${fmt(p.bfi2, 2)}</td>
     <td>${p.excluido ? '<span class="estado mal">Excluido</span>' : activo(p) ? '<span class="estado ok">Activo</span>' : '<span class="estado">Inactivo</span>'}</td></tr>`).join("");
   $("#conteo-participantes").textContent = `${filas.length} de ${estado.participantes.length} participantes` + (filas.length > 500 ? " (se muestran 500; usa la búsqueda)" : "");
 }
@@ -169,6 +181,7 @@ async function abrirParticipante(id) {
   const actual = estado.participantes.find((x) => x.id === id);
   $("#detalle-cuerpo").innerHTML = `
     <h2>${esc(p.alias || p.id)}</h2>${p.alias ? `<p class="codigo">Código ${esc(p.id)}</p>` : ""}
+    ${actual?.nivel ? `<p class="nivel-detalle">Responsabilidad ${celdaNivel(actual)}</p>` : ""}
     <p class="muted">${p.dias.length} días · ${actual?.perfil_nombre ? `perfil actual: <span class="punto" style="--c:${color(actual.perfil)}"></span>${esc(actual.perfil_nombre)} (${pct(actual.prob)} de confianza)` : "sin perfil todavía"}</p>
     <figure class="tarjeta"><figcaption>Horas de pantalla por día</figcaption><div class="lienzo"><canvas id="g-det-pantalla"></canvas></div></figure>
     <figure class="tarjeta"><figcaption>Tiempo por categoría (total del periodo)</figcaption><div class="lienzo"><canvas id="g-det-cat"></canvas></div></figure>
@@ -317,7 +330,8 @@ async function cargarCorrida(id) {
       ${bloqueSenales(p.z)}
       <details class="desplegable"><summary>Qué significa y cifras</summary>
       <p class="definicion">${definicion(p, bfi.get(p.perfil), bfiGeneral)}</p>
-      <dl>
+      <h4 class="titulo-cifras">Cifras del grupo</h4>
+      <dl class="cifras">
         <dt>Confianza media</dt><dd>${pct(p.prob_media)}</dd>
         <dt>Pantalla al día</dt><dd>${fmt((md.pantalla_min ?? 0) / 60, 1)} h</dd>
         <dt>Desbloqueos</dt><dd>${fmt(md.desbloqueos)}</dd>
@@ -627,6 +641,7 @@ document.querySelectorAll("#pestanas button").forEach((b) => (b.onclick = () => 
 window.addEventListener("hashchange", () => mostrar(location.hash.slice(1)));
 $("#buscar").oninput = pintarParticipantes;
 $("#filtro-perfil").onchange = pintarParticipantes;
+$("#filtro-nivel").onchange = pintarParticipantes;
 $("#filtro-estado").onchange = pintarParticipantes;
 $("#sel-corrida").onchange = (e) => cargarCorrida(Number(e.target.value));
 $("#sel-corrida-r").onchange = () => cargarResponsabilidad().catch((e) => aviso(e.message));

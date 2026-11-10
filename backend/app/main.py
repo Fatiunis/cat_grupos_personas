@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, inspect, select, text
 from sqlalchemy.orm import Session
 
-from .analisis import cargar_diario, ejecutar_corrida
+from .analisis import cargar_diario, ejecutar_corrida, nivel_de
 from synthetic import CALIBRACIONES
 from .db import Base, SessionLocal, engine, get_db
 from .models import Asignacion, Corrida, Dia, Participante, Retirado, ahora
@@ -173,9 +173,26 @@ def resumen(db: Session = Depends(get_db)):
     return out
 
 
+def _referencia_niveles(db):
+    """Corrida que define los niveles de responsabilidad: la real si ya tiene cuestionarios
+    suficientes; si no, el modelo final (simulación calibrada con estudios) o la última simulación."""
+    listas = list(db.scalars(select(Corrida).where(Corrida.estado == "lista").order_by(Corrida.id.desc())))
+    con_niveles = [c for c in listas if ((c.resultado or {}).get("niveles") or {}).get("cortes")]
+    for elegir in (lambda c: not _es_simulacion(c), lambda c: _calibracion(c) == "estudios", lambda c: True):
+        c = next((c for c in con_niveles if elegir(c)), None)
+        if c:
+            return c
+    return None
+
+
 @app.get("/api/participantes", dependencies=[api])
 def participantes(db: Session = Depends(get_db)):
     _numerar_pendientes(db)
+    ref = _referencia_niveles(db)
+    niv = (ref.resultado or {}).get("niveles", {}) if ref else {}
+    estimados = {e["id"]: e for e in niv.get("estimados", [])}
+    ubicados = {u["id"]: u for u in (ref.resultado or {}).get("ubicados", [])} if ref else {}
+    nombres_ref = {p["perfil"]: p["nombre"] for p in ref.resultado.get("perfiles", [])} if ref else {}
     c = _corrida_actual(db)
     asign = {a.participante_id: a for a in db.scalars(select(Asignacion).where(Asignacion.corrida_id == c.id))} if c else {}
     nombres = {p["perfil"]: p["nombre"] for p in c.resultado["perfiles"]} if c else {}
@@ -193,6 +210,18 @@ def participantes(db: Session = Depends(get_db)):
                         perfil=a and a.perfil, perfil_nombre=a and nombres.get(a.perfil), prob=a and round(a.prob, 3),
                         **(extra.get(p.id, {}) if a else {}),
                         perfil2_nombre=a and nombres.get(extra.get(p.id, {}).get("perfil2"))))
+        fila = out[-1]
+        # Clasificación principal: nivel de responsabilidad (por cuestionario si lo tiene; si no, estimado por su uso)
+        if niv.get("cortes") and p.bfi2_responsabilidad is not None:
+            fila.update(nivel=nivel_de(p.bfi2_responsabilidad, niv["cortes"]), nivel_fuente="cuestionario")
+        elif p.id in estimados:
+            fila.update(nivel=estimados[p.id]["nivel"], nivel_fuente="estimado", nivel_valor=round(estimados[p.id]["valor"], 2))
+        # Sin análisis real todavía: el perfil de uso sale del modelo de referencia (ubicación)
+        if a is None and p.id in ubicados:
+            u = ubicados[p.id]
+            fila.update(perfil=u["perfil"], perfil_nombre=nombres_ref.get(u["perfil"]), prob=u["prob"], perfil_fuente="modelo",
+                        perfil2=u.get("perfil2"), prob2=u.get("prob2"), atipico=u.get("atipico"),
+                        perfil2_nombre=nombres_ref.get(u.get("perfil2")))
     return out
 
 
