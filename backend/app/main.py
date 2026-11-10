@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, inspect, select, text
 from sqlalchemy.orm import Session
 
 from .analisis import cargar_diario, ejecutar_corrida
@@ -28,12 +28,31 @@ from .models import Asignacion, Corrida, Dia, Participante, Retirado, ahora
 
 Base.metadata.create_all(engine)
 
+# create_all no agrega columnas a una tabla que ya existe: se agrega "numero" si falta
+if "numero" not in {c["name"] for c in inspect(engine).get_columns("participantes")}:
+    with engine.begin() as _cx:
+        _cx.execute(text("ALTER TABLE participantes ADD COLUMN numero INTEGER"))
+
+
+def _asignar_numero(db, p):
+    if p.numero is None:
+        p.numero = (db.scalar(select(func.max(Participante.numero))) or 0) + 1
+
+
+def _numerar_pendientes(db):
+    """Numera por orden de llegada a quienes no tengan número (datos cargados por otra vía o antiguos)."""
+    for p in db.scalars(select(Participante).where(Participante.numero.is_(None)).order_by(Participante.creado, Participante.id)):
+        _asignar_numero(db, p)
+        db.flush()
+    db.commit()
+
 # Una corrida en segundo plano muere si el servidor se reinicia (Render lo hace al desplegar o tras
 # estar inactivo); al arrancar se marcan como interrumpidas para que no queden "corriendo" para siempre.
 with SessionLocal() as _db:
     for _c in _db.scalars(select(Corrida).where(Corrida.estado == "corriendo")):
         _c.estado, _c.error = "error", "Se interrumpió porque el servidor se reinició. Vuelve a correrla."
     _db.commit()
+    _numerar_pendientes(_db)
 app = FastAPI(title="Perfiles de uso")
 STATIC = Path(__file__).resolve().parents[1] / "static"
 basic = HTTPBasic(auto_error=False)
@@ -82,6 +101,7 @@ def ingest(cuerpo: dict | list[dict], db: Session = Depends(get_db)):
             raise HTTPException(410, "Participante retirado")
         p = db.get(Participante, pid) or Participante(id=pid)
         p.ultimo_envio = ahora()
+        _asignar_numero(db, p)
         db.add(p)
         datos = {k: v for k, v in d.items() if k not in ("participante_id", "fecha")}
         existente = db.scalar(select(Dia).where(Dia.participante_id == pid, Dia.fecha == fecha))
@@ -155,6 +175,7 @@ def resumen(db: Session = Depends(get_db)):
 
 @app.get("/api/participantes", dependencies=[api])
 def participantes(db: Session = Depends(get_db)):
+    _numerar_pendientes(db)
     c = _corrida_actual(db)
     asign = {a.participante_id: a for a in db.scalars(select(Asignacion).where(Asignacion.corrida_id == c.id))} if c else {}
     nombres = {p["perfil"]: p["nombre"] for p in c.resultado["perfiles"]} if c else {}
@@ -166,7 +187,7 @@ def participantes(db: Session = Depends(get_db)):
         n, f0, f1 = stats.get(p.id, (0, None, None))
         cobertura = n / ((f1 - f0).days + 1) if f0 else 0
         a = asign.get(p.id)
-        out.append(dict(id=p.id, dias=n, primer_dia=f0 and f0.isoformat(), ultimo_dia=f1 and f1.isoformat(),
+        out.append(dict(id=p.id, alias=p.alias, dias=n, primer_dia=f0 and f0.isoformat(), ultimo_dia=f1 and f1.isoformat(),
                         cobertura=round(cobertura, 3), ultimo_envio=p.ultimo_envio and p.ultimo_envio.isoformat(),
                         excluido=p.excluido, notas=p.notas, bfi2=p.bfi2_responsabilidad,
                         perfil=a and a.perfil, perfil_nombre=a and nombres.get(a.perfil), prob=a and round(a.prob, 3),
@@ -184,7 +205,7 @@ def participante(pid: str, db: Session = Depends(get_db)):
                       nombre=next((x["nombre"] for x in c.resultado["perfiles"] if x["perfil"] == a.perfil), ""))
                  for a, c in db.execute(select(Asignacion, Corrida).join(Corrida).where(
                      Asignacion.participante_id == pid).order_by(Corrida.id.desc()))]
-    return dict(id=p.id, excluido=p.excluido, notas=p.notas, bfi2=p.bfi2_responsabilidad, dias=dias, historial=historial)
+    return dict(id=p.id, alias=p.alias, excluido=p.excluido, notas=p.notas, bfi2=p.bfi2_responsabilidad, dias=dias, historial=historial)
 
 
 class CambioParticipante(BaseModel):

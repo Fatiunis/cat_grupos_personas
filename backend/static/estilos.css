@@ -97,7 +97,7 @@ figcaption { font-weight: 700; margin-bottom: 12px; }
 .tile:first-child .etiqueta { color: #f0d9ad; }
 .tile:first-child .sub { color: #a9bdbd; }
 
-.tarjetas-perfil { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 12px; }
+.tarjetas-perfil { display: grid; align-items: start; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 12px; }
 .perfil { border-top: 4px solid var(--c); }
 .perfil > .muted { margin-top: 2px; }
 .perfil .nombre {
@@ -135,7 +135,7 @@ tr.clicable { cursor: pointer; }
 .senal.a-favor { background: #e3eeee; color: #24575a; }
 .senal.en-contra { background: #f6e4dc; color: #8f4329; }
 .senal-vacia { margin: 4px 0 10px; }
-.niveles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 20px; }
+.niveles { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 20px; }
 .nivel { border-top: 4px solid var(--c); }
 .nivel-cabeza { margin-bottom: 10px; }
 .nivel-cabeza h3 { font: 600 19px/1.25 "Fraunces", Georgia, serif; margin: 0 0 2px; }
@@ -204,3 +204,14 @@ button.enlace { background: none; border: 0; padding: 0; color: var(--acento); t
 .tabla-etapas th:not(:first-child), .tabla-etapas td:not(:first-child) { width: 11%; }
 .tabla-etapas td:first-child { white-space: normal; min-width: 220px; }
 .tabla-ubicados td { white-space: normal; }
+.codigo { color: var(--muted); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-left: 4px; }
+h2 + p.codigo { margin: -8px 0 8px; margin-left: 0; }
+
+/* Tarjetas plegables: lo esencial a la vista, el detalle al desplegar */
+.fila-derecha { display: flex; justify-content: flex-end; margin: -8px 0 -8px; }
+details.desplegable { margin-top: 10px; border-top: 1px solid var(--rejilla); padding-top: 8px; }
+details.desplegable > summary { cursor: pointer; list-style: none; color: var(--acento); font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+details.desplegable > summary::-webkit-details-marker { display: none; }
+details.desplegable > summary::before { content: ""; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform .15s; margin-right: 2px; }
+details.desplegable[open] > summary::before { transform: rotate(45deg); }
+details.desplegable[open] > summary { margin-bottom: 6px; }

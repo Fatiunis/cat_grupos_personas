@@ -45,7 +45,7 @@
     <div class="cabecera-vista">
       <h2>Participantes</h2>
       <div class="filtros">
-        <input id="buscar" type="search" placeholder="Buscar ID" aria-label="Buscar ID">
+        <input id="buscar" type="search" placeholder="Buscar P01 o código" aria-label="Buscar ID">
         <select id="filtro-perfil" aria-label="Filtrar por perfil"><option value="">Todos los perfiles</option></select>
         <select id="filtro-estado" aria-label="Filtrar por estado">
           <option value="">Todos</option><option value="activo">Activos</option>
@@ -56,7 +56,7 @@
     <div class="tabla-envoltorio">
       <table id="tabla-participantes">
         <thead><tr>
-          <th data-col="id">ID</th><th data-col="dias" class="num">Días</th><th data-col="cobertura" class="num">Cobertura</th>
+          <th data-col="alias">Participante</th><th data-col="dias" class="num">Días</th><th data-col="cobertura" class="num">Cobertura</th>
           <th data-col="ultimo_envio">Último envío</th><th data-col="perfil">Perfil</th><th data-col="prob" class="num">Confianza</th>
           <th data-col="bfi2" class="num">BFI-2</th><th data-col="excluido">Estado</th>
         </tr></thead>
@@ -73,6 +73,7 @@
     </div>
     <p class="aviso sim" id="aviso-sim" hidden>Simulación con personas sintéticas: sirve para ver cómo funciona el modelo, no son resultados del estudio.</p>
     <div class="tiles" id="tiles-perfiles"></div>
+    <div class="fila-derecha"><button type="button" class="enlace" data-desplegar="#tarjetas-perfil">Abrir todas</button></div>
     <div class="tarjetas-perfil" id="tarjetas-perfil"></div>
     <div class="grid2">
       <figure class="tarjeta">

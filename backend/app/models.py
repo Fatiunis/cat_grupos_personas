@@ -19,6 +19,12 @@ class Participante(Base):
     excluido: Mapped[bool] = mapped_column(Boolean, default=False)
     notas: Mapped[str] = mapped_column(Text, default="")
     bfi2_responsabilidad: Mapped[float | None] = mapped_column(Float)
+    # Número corto y legible (P01, P02…) según el orden de llegada; el id largo sigue siendo la clave
+    numero: Mapped[int | None] = mapped_column(Integer)
+
+    @property
+    def alias(self):
+        return f"P{self.numero:02d}" if self.numero else None
 
 
 class Dia(Base):

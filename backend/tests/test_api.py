@@ -155,3 +155,13 @@ def test_panel_pide_la_version_nueva_de_sus_archivos():
     r = cliente.get("/")
     assert r.status_code == 200 and r.headers["cache-control"] == "no-cache"
     assert "/static/app.js?v=" in r.text and "/static/estilos.css?v=" in r.text
+
+
+def test_participantes_tienen_numero_legible_por_orden_de_llegada():
+    for pid in ["zzz-ultimo", "aaa-penultimo"]:
+        cliente.post("/ingest", json={"participante_id": pid, "fecha": "2026-11-01", "pantalla_min": 100}, headers=AUTH)
+    ps = {p["id"]: p for p in cliente.get("/api/participantes").json()}
+    a, b = ps["zzz-ultimo"]["alias"], ps["aaa-penultimo"]["alias"]
+    assert a.startswith("P") and int(b[1:]) == int(a[1:]) + 1  # por llegada, no por orden alfabético
+    assert len({p["alias"] for p in ps.values()}) == len(ps)
+    assert cliente.get("/api/participantes/zzz-ultimo").json()["alias"] == a

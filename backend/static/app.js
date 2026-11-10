@@ -8,7 +8,16 @@ const pct = (x) => (x == null ? "—" : `${fmt(100 * x)}\u00a0%`);
 const hora = (h) => (h == null ? "—" : ((h = ((h % 24) + 24) % 24), `${String(Math.floor(h)).padStart(2, "0")}:${String(Math.round((h % 1) * 60) % 60).padStart(2, "0")}`));
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const estado = { participantes: [], orden: { col: "id", asc: true }, corrida: null, graficos: {} };
+const estado = { participantes: [], orden: { col: "alias", asc: true }, corrida: null, graficos: {}, alias: {} };
+
+// Nombre corto (P01) primero y el código único después, más chico y en gris
+async function cargarAlias() {
+  try { estado.alias = Object.fromEntries((await api("/api/participantes")).map((p) => [p.id, p.alias])); } catch { /* el panel sigue con los códigos */ }
+}
+const aliasTxt = (id) => estado.alias[id] ? `${estado.alias[id]} (${id.slice(0, 8)})` : id.slice(0, 8);
+const quien = (id) => estado.alias[id]
+  ? `<b>${esc(estado.alias[id])}</b> <span class="codigo">${esc(id.slice(0, 8))}</span>`
+  : `<span class="codigo">${esc(id.slice(0, 8))}</span>`;
 
 async function api(ruta, opciones = {}) {
   const r = await fetch(ruta, opciones);
@@ -136,7 +145,7 @@ function pintarParticipantes() {
   const q = $("#buscar").value.trim().toLowerCase(), fp = $("#filtro-perfil").value, fe = $("#filtro-estado").value;
   const { col, asc } = estado.orden;
   const filas = estado.participantes
-    .filter((p) => !q || p.id.toLowerCase().includes(q))
+    .filter((p) => !q || p.id.toLowerCase().includes(q) || (p.alias || "").toLowerCase().includes(q))
     .filter((p) => !fp || (fp === "sin" ? p.perfil == null : String(p.perfil) === fp))
     .filter((p) => !fe || (fe === "excluido" ? p.excluido : fe === "activo" ? activo(p) && !p.excluido : !activo(p)))
     .sort((a, b) => {
@@ -144,7 +153,7 @@ function pintarParticipantes() {
       return (x > y ? 1 : x < y ? -1 : 0) * (asc ? 1 : -1);
     });
   $("#tabla-participantes tbody").innerHTML = filas.slice(0, 500).map((p) => `<tr data-id="${esc(p.id)}">
-    <td>${esc(p.id)}</td><td class="num">${p.dias}</td><td class="num">${pct(p.cobertura)}</td>
+    <td>${p.alias ? `<b>${esc(p.alias)}</b> <span class="codigo">${esc(p.id)}</span>` : esc(p.id)}</td><td class="num">${p.dias}</td><td class="num">${pct(p.cobertura)}</td>
     <td>${p.ultimo_envio ? new Date(p.ultimo_envio).toLocaleString("es", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
     <td>${p.perfil != null ? celdaPerfil(p.perfil, p.perfil_nombre, p.prob, p.perfil2, p.perfil2_nombre, p.atipico) : `<span class="muted">${p.dias < 14 ? "faltan días" : "sin corrida"}</span>`}</td>
     <td class="num">${p.prob != null ? pct(p.prob) : "—"}</td><td class="num">${fmt(p.bfi2, 2)}</td>
@@ -159,7 +168,7 @@ async function abrirParticipante(id) {
   const reparto = cats.map((c) => [c, p.dias.reduce((a, d) => a + (d[`${c}_min`] || 0), 0) / tot]).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
   const actual = estado.participantes.find((x) => x.id === id);
   $("#detalle-cuerpo").innerHTML = `
-    <h2>${esc(p.id)}</h2>
+    <h2>${esc(p.alias || p.id)}</h2>${p.alias ? `<p class="codigo">Código ${esc(p.id)}</p>` : ""}
     <p class="muted">${p.dias.length} días · ${actual?.perfil_nombre ? `perfil actual: <span class="punto" style="--c:${color(actual.perfil)}"></span>${esc(actual.perfil_nombre)} (${pct(actual.prob)} de confianza)` : "sin perfil todavía"}</p>
     <figure class="tarjeta"><figcaption>Horas de pantalla por día</figcaption><div class="lienzo"><canvas id="g-det-pantalla"></canvas></div></figure>
     <figure class="tarjeta"><figcaption>Tiempo por categoría (total del periodo)</figcaption><div class="lienzo"><canvas id="g-det-cat"></canvas></div></figure>
@@ -304,10 +313,12 @@ async function cargarCorrida(id) {
     const md = p.medianas;
     return `<div class="tarjeta perfil" style="--c:${color(p.perfil)}">
       <textarea class="nombre" rows="2" data-perfil="${p.perfil}" aria-label="Nombre del perfil" title="Clic para renombrar">${esc(p.nombre)}</textarea>
-      <div class="muted">${p.n} personas · confianza media ${pct(p.prob_media)}</div>
-      <p class="definicion">${definicion(p, bfi.get(p.perfil), bfiGeneral)}</p>
+      <div class="muted">${p.n} personas · ${fmt((md.pantalla_min ?? 0) / 60, 1)} h de pantalla al día</div>
       ${bloqueSenales(p.z)}
+      <details class="desplegable"><summary>Qué significa y cifras</summary>
+      <p class="definicion">${definicion(p, bfi.get(p.perfil), bfiGeneral)}</p>
       <dl>
+        <dt>Confianza media</dt><dd>${pct(p.prob_media)}</dd>
         <dt>Pantalla al día</dt><dd>${fmt((md.pantalla_min ?? 0) / 60, 1)} h</dd>
         <dt>Desbloqueos</dt><dd>${fmt(md.desbloqueos)}</dd>
         <dt>Uso nocturno (0–5 h)</dt><dd>${fmt(md.uso_nocturno_min)} min</dd>
@@ -315,7 +326,7 @@ async function cargarCorrida(id) {
         <dt>Redes / juegos</dt><dd>${pct(md.pct_social)} / ${pct(md.pct_juegos)}</dd>
         ${md.q_cumplimiento != null ? `<dt>Cumplimiento diario (1–5)</dt><dd>${fmt(md.q_cumplimiento, 1)}</dd>` : ""}
         ${bfi.has(p.perfil) ? `<dt>BFI-2 responsabilidad</dt><dd>${fmt(bfi.get(p.perfil).media, 2)}</dd>` : ""}
-      </dl></div>`;
+      </dl></details></div>`;
   }).join("");
   document.querySelectorAll(".perfil .nombre").forEach((inp) => {
     inp.onchange = async () => {
@@ -340,7 +351,7 @@ async function cargarCorrida(id) {
   const nombreP = (k) => c.perfiles.find((p) => p.perfil === k)?.nombre ?? k;
   $("#tabla-ubicados").innerHTML = ub.length
     ? `<tr><th>Participante</th><th class="num">Días</th><th>Perfil más parecido</th><th class="num">Confianza</th></tr>` +
-      ub.sort((a, b) => b.dias - a.dias).map((u) => `<tr class="clicable" data-id="${esc(u.id)}"><td>${esc(u.id.slice(0, 8))}</td><td class="num">${u.dias}</td>` +
+      ub.sort((a, b) => b.dias - a.dias).map((u) => `<tr class="clicable" data-id="${esc(u.id)}"><td>${quien(u.id)}</td><td class="num">${u.dias}</td>` +
         `<td>${celdaPerfil(u.perfil, nombreP(u.perfil), u.prob, u.perfil2, nombreP(u.perfil2), u.atipico)}</td><td class="num">${pct(u.prob)}</td></tr>`).join("")
     : `<tr><td class="muted">Aún no hay días de participantes reales para ubicar.</td></tr>`;
   document.querySelectorAll("#tabla-ubicados tr[data-id]").forEach((tr) => (tr.onclick = () => abrirParticipante(tr.dataset.id)));
@@ -379,8 +390,8 @@ function pintarMapa() {
   op.plugins.legend = { display: true, position: "bottom", labels: { color: css("--tinta-2"), usePointStyle: true, boxWidth: 8 } };
   const nombreP = (k) => c.perfiles.find((p) => p.perfil === k)?.nombre ?? k;
   op.plugins.tooltip.callbacks = { label: (ctx) => ctx.raw.dias != null
-    ? `${ctx.raw.id.slice(0, 8)} (real, ${ctx.raw.dias} días) · ${nombreP(ctx.raw.perfil)} (${pct(ctx.raw.prob)})`
-    : `${ctx.raw.id} · ${ctx.dataset.label} (${pct(ctx.raw.prob)})` };
+    ? `${aliasTxt(ctx.raw.id)} (real, ${ctx.raw.dias} días) · ${nombreP(ctx.raw.perfil)} (${pct(ctx.raw.prob)})`
+    : `${estado.alias[ctx.raw.id] ? aliasTxt(ctx.raw.id) : ctx.raw.id} · ${ctx.dataset.label} (${pct(ctx.raw.prob)})` };
   op.onClick = (_, els) => {
     const x = els.length && datasets[els[0].datasetIndex].data[els[0].index];
     // En una simulación solo los puntos reales tienen ficha
@@ -518,6 +529,7 @@ async function cargarResponsabilidad() {
     return `<div class="tarjeta nivel" style="--c:var(${info.color})">
       <div class="nivel-cabeza"><h3>Responsabilidad ${info.nombre.toLowerCase()}</h3><span class="muted">${rangoNivel(g)} · ${g.n} personas</span></div>
       ${bloqueSenales(g.z, 0.3)}
+      <details class="desplegable"><summary>Día típico y perfiles</summary>
       <dl>
         <dt>Pantalla al día</dt><dd>${fmt((md.pantalla_min ?? 0) / 60, 1)} h</dd>
         <dt>Desbloqueos</dt><dd>${fmt(md.desbloqueos)}</dd>
@@ -525,13 +537,13 @@ async function cargarResponsabilidad() {
         <dt>Primer / último uso</dt><dd>${hora(md.hora_primer_uso)} / ${hora(md.hora_ultimo_uso)}</dd>
         ${md.q_cumplimiento != null ? `<dt>Cumplimiento diario (1–5)</dt><dd>${fmt(md.q_cumplimiento, 1)}</dd>` : ""}
       </dl>
-      <h4>Perfiles de uso en este nivel</h4><ul class="mini-perfiles">${mezcla}</ul></div>`;
+      <h4>Perfiles de uso en este nivel</h4><ul class="mini-perfiles">${mezcla}</ul></details></div>`;
   }).join("");
   const est = n.estimados || [];
   const tablaEst = `<div class="tarjeta"><h3>${c.simulacion ? "Tus participantes: nivel estimado por su uso" : "Participantes sin BFI-2: nivel estimado por su uso"}</h3>
     <p class="muted">Estimación a partir del uso del teléfono, con un error típico de ±${fmt(n.rmse, 1)} puntos. No reemplaza el cuestionario.</p>
-    ${est.length ? `<div class="tabla-envoltorio"><table><tr><th>Participante</th><th class="num">BFI-2 estimado</th><th>Nivel estimado</th></tr>${est.sort((a, b) => b.valor - a.valor).map((e) => `<tr class="clicable" data-id="${esc(e.id)}"><td>${esc(e.id.slice(0, 8))}</td><td class="num">${fmt(e.valor, 1)}</td><td><span class="punto" style="--c:var(${NIVEL_INFO[e.nivel].color})"></span>${NIVEL_INFO[e.nivel].nombre}</td></tr>`).join("")}</table></div>` : `<p class="muted">No hay personas para estimar.</p>`}</div>`;
-  $("#resp-cuerpo").innerHTML = `<div class="tiles">${tiles}</div><div class="niveles">${tarjetas}</div>${tablaEst}
+    ${est.length ? `<div class="tabla-envoltorio"><table><tr><th>Participante</th><th class="num">BFI-2 estimado</th><th>Nivel estimado</th></tr>${est.sort((a, b) => b.valor - a.valor).map((e) => `<tr class="clicable" data-id="${esc(e.id)}"><td>${quien(e.id)}</td><td class="num">${fmt(e.valor, 1)}</td><td><span class="punto" style="--c:var(${NIVEL_INFO[e.nivel].color})"></span>${NIVEL_INFO[e.nivel].nombre}</td></tr>`).join("")}</table></div>` : `<p class="muted">No hay personas para estimar.</p>`}</div>`;
+  $("#resp-cuerpo").innerHTML = `<div class="tiles">${tiles}</div><div class="fila-derecha"><button type="button" class="enlace" data-desplegar=".niveles">Abrir todas</button></div><div class="niveles">${tarjetas}</div>${tablaEst}
     <p class="muted">Los cuatro niveles son los cuartiles del grupo: cada uno junta a un cuarto de las personas con BFI-2 (cortes en ${n.cortes.map((x) => fmt(x, 2)).join(", ")}). Las señales a favor y en contra vienen de estudios publicados (pasa el cursor sobre cada una para ver la fuente); describen tendencias del grupo, no juicios sobre cada persona.</p>`;
   document.querySelectorAll("#resp-cuerpo tr[data-id]").forEach((tr) => (tr.onclick = () => abrirParticipante(tr.dataset.id).catch(() => {})));
 }
@@ -568,10 +580,10 @@ async function cargarModelo() {
     const perfiles = fin.perfiles.sort((a, b) => b.n - a.n).map((p) => `<li style="--c:${color(p.perfil)}">
       <div><span class="punto"></span>${esc(p.nombre)} <span class="muted">${pct(p.n / total)}</span></div>
       <div class="barra-mini"><span style="width:${(100 * p.n) / total}%"></span></div></li>`).join("");
-    const ub = fin.ubicados.length ? `<table><tr><th>Participante</th><th class="num">Días</th><th>Perfil</th><th class="num">Confianza</th></tr>${fin.ubicados.map((u) => `<tr class="clicable" data-id="${esc(u.id)}"><td>${esc(u.id.slice(0, 8))}</td><td class="num">${fmt(u.dias)}</td>
+    const ub = fin.ubicados.length ? `<table><tr><th>Participante</th><th class="num">Días</th><th>Perfil</th><th class="num">Confianza</th></tr>${fin.ubicados.map((u) => `<tr class="clicable" data-id="${esc(u.id)}"><td>${quien(u.id)}</td><td class="num">${fmt(u.dias)}</td>
       <td><span class="punto" style="--c:${color(u.perfil)}"></span>${esc(u.nombre)}${u.atipico ? ' <span class="estado atipico">Atípico</span>' : ""}</td><td class="num">${pct(u.prob)}</td></tr>`).join("")}</table>` : `<p class="muted">Aún no hay participantes reales para ubicar.</p>`;
     final = `<div class="grid2"><div class="tarjeta"><h3>Modelo final: ${fmt(fin.k)} perfiles</h3>
-      <p class="muted">Simulación calibrada con estudios (corrida ${fin.id}). Es el modelo que se usa para ubicar a los participantes reales mientras no haya suficientes para formar perfiles propios.</p>
+      <p class="muted">Simulación calibrada con estudios (análisis ${fin.id}). Es el modelo que se usa para ubicar a los participantes reales mientras no haya suficientes para formar perfiles propios.</p>
       <ul class="mini-perfiles">${perfiles}</ul></div>
       <div class="tarjeta"><h3>Dónde quedan tus participantes</h3><p class="muted">La marca de atípico solo se da con 14 días o más.</p><div class="tabla-envoltorio tabla-ubicados">${ub}</div></div></div>`;
   }
@@ -582,6 +594,16 @@ async function cargarModelo() {
   document.querySelectorAll("#modelo-cuerpo [data-sim-modelo]").forEach((b) => (b.onclick = () => correrSimulacion(b.dataset.simModelo).then(() => aviso("Corriendo… vuelve a abrir esta pestaña en un minuto.")).catch((e) => aviso(e.message))));
   document.querySelectorAll("#modelo-cuerpo tr[data-id]").forEach((tr) => (tr.onclick = () => abrirParticipante(tr.dataset.id).catch(() => {})));
 }
+
+// Botón "Abrir todas / Cerrar todas" para las tarjetas plegables de una sección
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-desplegar]");
+  if (!b) return;
+  const det = document.querySelectorAll(`${b.dataset.desplegar} details.desplegable`);
+  const abrir = [...det].some((d) => !d.open);
+  det.forEach((d) => (d.open = abrir));
+  b.textContent = abrir ? "Cerrar todas" : "Abrir todas";
+});
 
 // ---------- Navegación ----------
 
@@ -596,6 +618,7 @@ async function mostrar(vista) {
   if (vista === "resumen") refresco = setInterval(() => cargarResumen().catch((e) => aviso(e.message)), 30000);
   try {
     aviso("");
+    await cargarAlias();
     await cargadores[vista]();
   } catch (e) { aviso(`No se pudieron cargar los datos: ${e.message}`); }
 }
