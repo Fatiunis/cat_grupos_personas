@@ -22,6 +22,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from .analisis import cargar_diario, ejecutar_corrida
+from synthetic import CALIBRACIONES
 from .db import Base, SessionLocal, engine, get_db
 from .models import Asignacion, Corrida, Dia, Participante, Retirado, ahora
 
@@ -107,6 +108,11 @@ api = Depends(admin)
 
 def _es_simulacion(c):
     return bool((c.resultado or {}).get("simulacion"))
+
+
+def _calibracion(c):
+    sim = (c.resultado or {}).get("simulacion")
+    return (sim.get("calibracion") or "base") if sim else None
 
 
 def _corrida_actual(db):
@@ -231,7 +237,8 @@ async def subir_etiquetas(archivo: UploadFile = File(...), db: Session = Depends
 @app.get("/api/corridas", dependencies=[api])
 def corridas(db: Session = Depends(get_db)):
     return [dict(id=c.id, creada=c.creada.isoformat(), estado=c.estado, k=c.k, k_pedido=c.k_pedido, error=c.error,
-                 personas=(c.resultado or {}).get("metricas", {}).get("personas"), simulacion=_es_simulacion(c))
+                 personas=(c.resultado or {}).get("metricas", {}).get("personas"), simulacion=_es_simulacion(c),
+                 calibracion=_calibracion(c))
             for c in db.scalars(select(Corrida).order_by(Corrida.id.desc()))]
 
 
@@ -239,6 +246,7 @@ class NuevaCorrida(BaseModel):
     k: int | None = None
     simulacion: bool = False  # demostración con personas sintéticas, aparte de los datos reales
     personas: int = 300
+    calibracion: str = "base"  # "base" o "estudios" (ajustada a cifras publicadas)
 
 
 @app.post("/api/corridas", dependencies=[api])
@@ -247,7 +255,9 @@ def nueva_corrida(pedido: NuevaCorrida, tareas: BackgroundTasks, db: Session = D
         raise HTTPException(422, "k debe estar entre 2 y 8")
     if pedido.simulacion and not 60 <= pedido.personas <= 1000:
         raise HTTPException(422, "personas debe estar entre 60 y 1000")
-    sim = dict(personas=pedido.personas, dias=42, semilla=7) if pedido.simulacion else None
+    if pedido.calibracion not in CALIBRACIONES:
+        raise HTTPException(422, f"calibracion debe ser una de {', '.join(CALIBRACIONES)}")
+    sim = dict(personas=pedido.personas, dias=42, semilla=7, calibracion=pedido.calibracion) if pedido.simulacion else None
     c = Corrida(k_pedido=pedido.k, resultado={"simulacion": sim} if sim else {})
     db.add(c)
     db.commit()
@@ -267,7 +277,35 @@ def corrida(cid: int, db: Session = Depends(get_db)):
                        **extra.get(a.participante_id, {}))
                   for a in db.scalars(select(Asignacion).where(Asignacion.corrida_id == cid))]
     return dict(id=c.id, creada=c.creada.isoformat(), estado=c.estado, k=c.k, k_pedido=c.k_pedido, error=c.error,
-                **res, simulacion=bool(sim), puntos=puntos)
+                **res, simulacion=bool(sim), calibracion=_calibracion(c), puntos=puntos)
+
+
+@app.get("/api/modelo", dependencies=[api])
+def modelo(db: Session = Depends(get_db)):
+    """Compara la última corrida lista de cada tipo: simulación base, simulación calibrada con
+    estudios y datos reales. El modelo final es la calibrada con estudios, con los reales ubicados."""
+    ultimas = {}
+    for c in db.scalars(select(Corrida).where(Corrida.estado == "lista").order_by(Corrida.id.desc())):
+        ultimas.setdefault(_calibracion(c) or "reales", c)
+    etapas = []
+    for tipo in ("base", "estudios", "reales"):
+        c = ultimas.get(tipo)
+        if c is None:
+            etapas.append(dict(tipo=tipo, id=None))
+            continue
+        res = c.resultado or {}
+        nombres = {p["perfil"]: p["nombre"] for p in res.get("perfiles", [])}
+        if tipo == "reales":
+            ubic = [dict(id=a.participante_id, perfil=a.perfil, nombre=nombres.get(a.perfil), prob=round(a.prob, 3))
+                    for a in db.scalars(select(Asignacion).where(Asignacion.corrida_id == c.id))]
+        else:
+            ubic = [dict(id=u["id"], perfil=u["perfil"], nombre=nombres.get(u["perfil"]), prob=u["prob"],
+                         atipico=u.get("atipico"), dias=u.get("dias")) for u in res.get("ubicados", [])]
+        etapas.append(dict(tipo=tipo, id=c.id, creada=c.creada.isoformat(), k=c.k, metricas=res.get("metricas", {}),
+                           perfiles=[dict(perfil=p["perfil"], nombre=p["nombre"], n=p["n"]) for p in res.get("perfiles", [])],
+                           niveles={k: v for k, v in (res.get("niveles") or {}).items() if k in ("cortes", "rmse", "con_bfi", "faltan")},
+                           ubicados=ubic))
+    return dict(etapas=etapas, final="estudios")
 
 
 class CambioPerfil(BaseModel):

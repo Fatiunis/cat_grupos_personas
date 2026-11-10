@@ -47,6 +47,39 @@ ARQUETIPOS = {
 }
 CATEGORIAS = ["social", "mensajeria", "juegos", "video", "productividad", "educacion"]
 
+# Calibración "estudios": los mismos arquetipos, ajustados a cifras publicadas.
+# Fuentes (detalle y links en el informe del proyecto):
+#  - Andrews et al. 2015: ~85 revisiones y ~5 h de uso al día; más de la mitad de los usos < 30 s.
+#  - Bentley et al. 2015: dispersión grande entre personas (173.6 min, DE 129.7); la comunicación
+#    es cerca de dos tercios del uso y los juegos son una parte pequeña para la mayoría.
+#  - dscout 2016: 76 sesiones al día en promedio, 132 en el 10 % más intenso.
+#  - Böhmer et al. 2011: juegos y redes tienen su pico de noche; el uso mínimo es cerca de las 5 am.
+#  - Stachl et al. 2020: la responsabilidad se asocia a primer y último uso más tempranos y a una
+#    inactividad nocturna más regular; se predice con r de 0.31, una relación modesta.
+#  - Marengo et al. 2020: responsabilidad y uso problemático, r = -0.16.
+#  - Buzoku et al. 2025 y Guerreiro et al. 2024: responsabilidad y matutinidad, efecto de 0.16 a 0.35.
+CALIBRACIONES = ("base", "estudios")
+_MEDIA_PANTALLA = 215  # queda en ~255 min/día ya con fines de semana y variación diaria: entre Bentley (~174) y Andrews (~300)
+_MEDIA_DESBLOQUEOS = 72  # queda en ~82 al día, cerca de las ~85 revisiones de Andrews
+_ACERCAR = 0.4  # cuánto se acercan los arquetipos al promedio: más mezcla entre grupos
+_EFECTO_RASGO = 0.37  # fuerza del rasgo sobre el uso; con 0.37 el modelo lo recupera con r ~0.3 (Stachl)
+
+
+def _arquetipos_estudios():
+    pesos = np.array([0.25, 0.15, 0.20, 0.12, 0.13, 0.15])
+    nombres = list(ARQUETIPOS)
+    medias = {c: float(np.dot(pesos, [ARQUETIPOS[n][c] for n in nombres])) for c in ARQUETIPOS[nombres[0]]}
+    salida = {}
+    for n in nombres:
+        a = {c: v + _ACERCAR * (medias[c] - v) for c, v in ARQUETIPOS[n].items()}
+        a["pantalla"] *= _MEDIA_PANTALLA / medias["pantalla"]
+        a["desbloqueos"] *= _MEDIA_DESBLOQUEOS / medias["desbloqueos"]
+        salida[n] = a
+    return salida
+
+
+ARQUETIPOS_ESTUDIOS = _arquetipos_estudios()
+
 
 # Las horas son continuas desde la medianoche del día, como en la APK:
 # el día va de 05:00 a 05:00, así que el último uso puede ir de 5 a 29 h
@@ -55,10 +88,21 @@ def _hora(h, minimo=5.0, maximo=29.0):
     return float(np.clip(h, minimo, maximo))
 
 
-def simular_persona(rng, pid, arquetipo, dias, inicio):
-    base = ARQUETIPOS[arquetipo]
+def simular_persona(rng, pid, arquetipo, dias, inicio, tabla=None, rasgo=0.0):
+    """rasgo: responsabilidad latente de la persona (0 = promedio). Solo la usa la calibración
+    "estudios", donde desplaza un poco horarios, regularidad, uso nocturno y mezcla de apps."""
+    base = dict((tabla or ARQUETIPOS)[arquetipo])
+    if rasgo:
+        rasgo *= _EFECTO_RASGO
+        base["primer_uso"] -= 0.35 * rasgo
+        base["ultimo_uso"] -= 0.35 * rasgo
+        base["regularidad"] += 0.06 * rasgo
+        base["noche"] *= float(np.exp(-0.3 * rasgo))
+        base["bateria_baja"] *= float(np.exp(-0.25 * rasgo))
+        base["productividad"] *= float(np.exp(0.2 * rasgo))
+        base["juegos"] *= float(np.exp(-0.2 * rasgo))
     # Efecto propio de la persona: nadie es el arquetipo exacto.
-    nivel = rng.lognormal(0, 0.25)
+    nivel = rng.lognormal(0, 0.45 if tabla else 0.25)
     reg = float(np.clip(base["regularidad"] + rng.normal(0, 0.08), 0.05, 0.98))
     jitter_h = 0.3 + 2.7 * (1 - reg)  # horas de variación diaria en horarios
     mezcla = rng.dirichlet(np.array([base[c] for c in CATEGORIAS]) * 40)
@@ -75,7 +119,8 @@ def simular_persona(rng, pid, arquetipo, dias, inicio):
         pantalla = min(pantalla, 1200)
         desbloqueos = rng.poisson(base["desbloqueos"] * nivel * f_finde)
         sesion_media = pantalla / max(desbloqueos, 1)
-        cortas = rng.binomial(max(desbloqueos, 0), min(0.9, 0.25 + 0.003 * base["desbloqueos"]))
+        p_corta = 0.55 if tabla else min(0.9, 0.25 + 0.003 * base["desbloqueos"])
+        cortas = rng.binomial(max(desbloqueos, 0), p_corta)
         primer = _hora(base["primer_uso"] + (1.2 if finde else 0) + rng.normal(0, jitter_h))
         ultimo = _hora(base["ultimo_uso"] + (0.8 if finde else 0) + rng.normal(0, jitter_h))
         noche = max(0.0, base["noche"] * nivel * rng.lognormal(0, 0.6) * (1.5 if finde else 1))
@@ -107,7 +152,11 @@ def simular_persona(rng, pid, arquetipo, dias, inicio):
     return filas, reg
 
 
-def generar(personas=2000, dias=42, semilla=7):
+def generar(personas=2000, dias=42, semilla=7, calibracion="base"):
+    if calibracion not in CALIBRACIONES:
+        raise ValueError(f"calibracion debe ser una de {CALIBRACIONES}")
+    if calibracion == "estudios":
+        return _generar_estudios(personas, dias, semilla)
     rng = np.random.default_rng(semilla)
     inicio = pd.Timestamp("2026-01-05")
     nombres = list(ARQUETIPOS)
@@ -127,15 +176,35 @@ def generar(personas=2000, dias=42, semilla=7):
     return pd.DataFrame(filas), pd.DataFrame(etiquetas)
 
 
+def _generar_estudios(personas, dias, semilla):
+    """Responsabilidad como rasgo de cada persona (no del arquetipo), con efectos pequeños
+    sobre el uso, para que la relación quede en el orden de lo publicado (r cerca de 0.3)."""
+    rng = np.random.default_rng(semilla)
+    inicio = pd.Timestamp("2026-01-05")
+    nombres = list(ARQUETIPOS)
+    pesos = np.array([0.25, 0.15, 0.20, 0.12, 0.13, 0.15])
+    filas, etiquetas = [], []
+    for i in range(personas):
+        arq = rng.choice(nombres, p=pesos)
+        pid = f"p{i:05d}"
+        rasgo = float(rng.normal())
+        f, _ = simular_persona(rng, pid, arq, dias, inicio, ARQUETIPOS_ESTUDIOS, rasgo)
+        filas.extend(f)
+        bfi = float(np.clip(3.5 + 0.65 * rasgo, 1, 5))
+        etiquetas.append(dict(participante_id=pid, arquetipo=arq, bfi2_responsabilidad=round(bfi, 2)))
+    return pd.DataFrame(filas), pd.DataFrame(etiquetas)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--personas", type=int, default=2000)
     ap.add_argument("--dias", type=int, default=42)
     ap.add_argument("--semilla", type=int, default=7)
+    ap.add_argument("--calibracion", choices=CALIBRACIONES, default="base")
     ap.add_argument("--salida", default="datos_sinteticos.csv")
     ap.add_argument("--etiquetas", default="etiquetas_sinteticas.csv")
     a = ap.parse_args()
-    diario, etiq = generar(a.personas, a.dias, a.semilla)
+    diario, etiq = generar(a.personas, a.dias, a.semilla, a.calibracion)
     diario.to_csv(a.salida, index=False)
     etiq.to_csv(a.etiquetas, index=False)
     print(f"{len(diario)} filas diarias de {diario.participante_id.nunique()} personas -> {a.salida}")

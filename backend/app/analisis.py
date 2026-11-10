@@ -104,19 +104,27 @@ def _limpio(x):
     return x
 
 
-# Niveles de responsabilidad según el puntaje BFI-2 (escala 1 a 5)
-CORTES_NIVEL = (2.95, 3.95)
-NIVELES = ["baja", "media", "alta"]
+# Niveles de responsabilidad: cuatro grupos por cuartiles del puntaje BFI-2 de las personas
+# con cuestionario. Los cortes salen del propio grupo, así cada nivel junta a un cuarto de ellas.
+NIVELES = ["baja", "media_baja", "media_alta", "alta"]
+# Variables extra que usan las señales de responsabilidad (Stachl et al. 2020: primer uso más
+# temprano y noches más regulares) aunque no sirvan para nombrar perfiles
+VARIABLES_SENALES = ["hora_primer_uso_med", "hora_inicio_sueno_sd"]
 
 
-def nivel_de(v):
-    return NIVELES[int(v > CORTES_NIVEL[0]) + int(v > CORTES_NIVEL[1])]
+def cortes_cuartiles(y):
+    return [float(v) for v in y.quantile([0.25, 0.5, 0.75])]
+
+
+def nivel_de(v, cortes):
+    return NIVELES[sum(v > c for c in cortes)]
 
 
 def niveles_responsabilidad(feats, y, perfiles, legibles):
-    """Agrupa a las personas con BFI-2 en baja, media y alta, y describe el uso de cada nivel."""
-    nivel = y.map(nivel_de)
-    claves = [c for c in NOMBRES_VARIABLES if c in feats.columns]
+    """Agrupa a las personas con BFI-2 en cuatro niveles y describe el uso de cada uno."""
+    cortes = cortes_cuartiles(y)
+    nivel = y.map(lambda v: nivel_de(v, cortes))
+    claves = [c for c in [*NOMBRES_VARIABLES, *VARIABLES_SENALES] if c in feats.columns]
     z = (feats[claves] - feats[claves].mean()) / feats[claves].std()
     out = []
     for nv in NIVELES:
@@ -124,9 +132,10 @@ def niveles_responsabilidad(feats, y, perfiles, legibles):
         if not len(ids):
             continue
         out.append(dict(nivel=nv, n=int(len(ids)), media_bfi=float(y[ids].mean()),
+                        rango=[float(y[ids].min()), float(y[ids].max())],
                         z=z.loc[ids].mean().round(2).to_dict(), medianas=legibles.loc[ids].median().to_dict(),
                         perfiles={int(p): int(c) for p, c in perfiles[ids].value_counts().items()}))
-    return dict(cortes=list(CORTES_NIVEL), con_bfi=int(len(y)), grupos=out)
+    return dict(cortes=cortes, criterio="cuartiles", con_bfi=int(len(y)), grupos=out)
 
 
 def calcular(diario, etiquetas=None, k=None, ubicar=None):
@@ -223,7 +232,7 @@ def calcular(diario, etiquetas=None, k=None, ubicar=None):
             estimar += list(nuevos[X.columns].iterrows())
         if estimar:
             valores = modelo.predict(pd.DataFrame([f for _, f in estimar], columns=X.columns))
-            niveles["estimados"] = [dict(id=pid, valor=float(v), nivel=nivel_de(v)) for (pid, _), v in zip(estimar, valores)]
+            niveles["estimados"] = [dict(id=pid, valor=float(v), nivel=nivel_de(v, niveles["cortes"])) for (pid, _), v in zip(estimar, valores)]
     else:
         niveles = dict(faltan=max(0, 30 - n_etiquetas), con_bfi=n_etiquetas)
 
@@ -235,8 +244,11 @@ def calcular(diario, etiquetas=None, k=None, ubicar=None):
         pn = gm.predict_proba(Zn)
         dias_n = ubicar.groupby("participante_id").size()
         resultado["ubicados"] = [dict(id=pid, perfil=int(pr.argmax()), prob=round(float(pr.max()), 3), dias=int(dias_n.get(pid, 0)),
-                                      x=round(float(zz[0]), 3), y=round(float(zz[1] if len(zz) > 1 else 0), 3), **d)
+                                      x=round(float(zz[0]), 3), y=round(float(zz[1] if len(zz) > 1 else 0), 3),
+                                      **dict(d, atipico=d["atipico"] if dias_n.get(pid, 0) >= DIAS_MINIMOS else None))
                                  for pid, pr, zz, d in zip(nuevos.index, pn, Zn, detalle(pn, Zn))]
+        # Con menos de 14 días las variaciones día a día salen ruidosas y casi todos parecerían atípicos;
+        # en ese caso la marca queda vacía (None) en lugar de afirmar algo que no se puede saber.
     asign = [dict(participante_id=pid, perfil=int(perfiles[pid]), prob=float(pr), x=float(zz[0]), y=float(zz[1] if len(zz) > 1 else 0))
              for pid, pr, zz in zip(feats.index, prob, Z)]
     return resultado, asign
@@ -249,7 +261,7 @@ def _corrida_simulada(db, corrida, sim):
     dentro del resultado, así una simulación nunca se mezcla con los datos reales. Los
     participantes reales que ya mandaron días se ubican en los perfiles de la simulación.
     """
-    diario, etiq = generar(sim["personas"], sim.get("dias", 42), sim.get("semilla", 7))
+    diario, etiq = generar(sim["personas"], sim.get("dias", 42), sim.get("semilla", 7), sim.get("calibracion", "base"))
     diario["fecha"] = diario.fecha.astype(str)
     bfi = etiq.set_index("participante_id").bfi2_responsabilidad
     reales = cargar_diario(db)

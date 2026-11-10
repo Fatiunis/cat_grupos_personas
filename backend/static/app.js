@@ -206,7 +206,7 @@ const ETIQUETAS_Z = {
 async function cargarCorridas() {
   const lista = (await api("/api/corridas")).filter((c) => c.estado === "lista");
   const sel = $("#sel-corrida");
-  sel.innerHTML = lista.map((c) => `<option value="${c.id}">${c.simulacion ? "Simulación · " : ""}Corrida ${c.id} · ${c.k} perfiles · ${new Date(c.creada).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}</option>`).join("");
+  sel.innerHTML = lista.map((c) => `<option value="${c.id}">${c.simulacion ? (c.calibracion === "estudios" ? "Simulación con estudios · " : "Simulación · ") : ""}Corrida ${c.id} · ${c.k} perfiles · ${new Date(c.creada).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}</option>`).join("");
   if (!lista.length) {
     $("#tarjetas-perfil").innerHTML = `<p class="muted">No hay corridas terminadas. Crea una en <a href="#analisis">Análisis</a>.</p>`;
     return;
@@ -237,29 +237,32 @@ const FRASES = {
   lugares_distintos_med: ["pasan por muchos lugares distintos", "se mueven por pocos lugares"],
 };
 
-// Señales para la responsabilidad (hipótesis de estudios previos): [1 si lo alto favorece, -1 si lo alto juega en contra, frase a favor, frase en contra]
+// Señales para la responsabilidad, solo las que respaldan estudios publicados (ver informe):
+// [1 si lo alto favorece, -1 si lo alto juega en contra, frase a favor, frase en contra, fuentes]
 const SENALES = {
-  hora_primer_uso_sd: [-1, "Horarios regulares", "Horarios que cambian mucho"],
-  uso_nocturno_min_med: [-1, "Casi sin uso de madrugada", "Uso de madrugada"],
-  veces_bateria_baja_med: [-1, "Cuida la batería", "Deja que la batería se agote"],
-  pct_productividad_med: [1, "Más apps de trabajo y estudio", "Pocas apps de trabajo y estudio"],
-  desbloqueos_med: [-1, "Revisa el teléfono pocas veces", "Revisa el teléfono muy seguido"],
-  pct_social_med: [-1, "Poco tiempo en redes", "Mucho tiempo en redes"],
-  pct_juegos_med: [-1, "Poco tiempo en juegos", "Mucho tiempo en juegos"],
+  hora_primer_uso_med: [-1, "Empieza el día temprano", "Empieza el día tarde", "Stachl 2020; Buzoku 2025"],
+  hora_primer_uso_sd: [-1, "Horarios regulares", "Horarios que cambian mucho", "Stachl 2020"],
+  hora_inicio_sueno_sd: [-1, "Hora de dormir estable", "Hora de dormir cambiante", "Stachl 2020; Kroese 2014"],
+  uso_nocturno_min_med: [-1, "Casi sin uso de madrugada", "Uso de madrugada", "Kroese 2014; Guerreiro 2024"],
+  pct_productividad_med: [1, "Más apps de organización y trabajo", "Pocas apps de organización y trabajo", "Stachl 2020"],
+  desbloqueos_med: [-1, "Revisa el teléfono pocas veces", "Revisa el teléfono muy seguido", "Marengo 2020"],
 };
 
 function senales(z, umbral = 0.5) {
   const favor = [], contra = [];
   Object.entries(z || {}).filter(([v, x]) => SENALES[v] && Math.abs(x) >= umbral)
     .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
-    .forEach(([v, x]) => (Math.sign(x) === SENALES[v][0] ? favor : contra).push(SENALES[v][Math.sign(x) === SENALES[v][0] ? 1 : 2]));
+    .forEach(([v, x]) => {
+      const aFavor = Math.sign(x) === SENALES[v][0];
+      (aFavor ? favor : contra).push({ texto: SENALES[v][aFavor ? 1 : 2], fuente: SENALES[v][3] });
+    });
   return { favor, contra };
 }
 
 function bloqueSenales(z, umbral) {
   const s = senales(z, umbral);
   if (!s.favor.length && !s.contra.length) return `<p class="muted senal-vacia">Sin señales marcadas para la responsabilidad.</p>`;
-  return `<div class="senales">${s.favor.map((t) => `<span class="senal a-favor">+ ${t}</span>`).join("")}${s.contra.map((t) => `<span class="senal en-contra">− ${t}</span>`).join("")}</div>`;
+  return `<div class="senales">${s.favor.map((t) => `<span class="senal a-favor" title="${t.fuente}">+ ${t.texto}</span>`).join("")}${s.contra.map((t) => `<span class="senal en-contra" title="${t.fuente}">− ${t.texto}</span>`).join("")}</div>`;
 }
 
 function definicion(p, bfiPerfil, bfiGeneral) {
@@ -451,12 +454,15 @@ $("#form-corrida").onsubmit = async (e) => {
   } catch (err) { aviso(err.message); }
 };
 
-$("#btn-simulacion").onclick = async () => {
+async function correrSimulacion(calibracion) {
+  await api("/api/corridas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ simulacion: true, calibracion }) });
+}
+document.querySelectorAll("[data-simulacion]").forEach((b) => (b.onclick = async () => {
   try {
-    await api("/api/corridas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ simulacion: true }) });
-    cargarAnalisis();
+    await correrSimulacion(b.dataset.simulacion);
+    if (location.hash === "#modelo") cargarModelo(); else cargarAnalisis();
   } catch (err) { aviso(err.message); }
-};
+}));
 
 $("#form-etiquetas").onsubmit = async (e) => {
   e.preventDefault();
@@ -469,16 +475,18 @@ $("#form-etiquetas").onsubmit = async (e) => {
 // ---------- Responsabilidad ----------
 
 const NIVEL_INFO = {
-  baja: { nombre: "Responsabilidad baja", rango: "BFI-2 hasta 2,9", color: "--s5" },
-  media: { nombre: "Responsabilidad media", rango: "BFI-2 de 3,0 a 3,9", color: "--s2" },
-  alta: { nombre: "Responsabilidad alta", rango: "BFI-2 de 4,0 o más", color: "--s1" },
+  baja: { nombre: "Baja", color: "--s5" },
+  media_baja: { nombre: "Media baja", color: "--s2" },
+  media_alta: { nombre: "Media alta", color: "--s7" },
+  alta: { nombre: "Alta", color: "--s1" },
 };
+const rangoNivel = (g) => `BFI-2 de ${fmt(g.rango[0], 1)} a ${fmt(g.rango[1], 1)}`;
 
 async function cargarResponsabilidad() {
   const lista = (await api("/api/corridas")).filter((c) => c.estado === "lista");
   const sel = $("#sel-corrida-r");
   const actual = Number(sel.value) || (lista.find((c) => !c.simulacion) || lista[0])?.id;
-  sel.innerHTML = lista.map((c) => `<option value="${c.id}">${c.simulacion ? "Simulación · " : ""}Corrida ${c.id} · ${new Date(c.creada).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}</option>`).join("");
+  sel.innerHTML = lista.map((c) => `<option value="${c.id}">${c.simulacion ? (c.calibracion === "estudios" ? "Simulación con estudios · " : "Simulación · ") : ""}Corrida ${c.id} · ${new Date(c.creada).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}</option>`).join("");
   if (!actual) {
     $("#resp-cuerpo").innerHTML = `<div class="tarjeta"><p class="muted">Todavía no hay corridas. Ve a <a href="#analisis">Análisis</a> y corre la demostración o el análisis.</p></div>`;
     return;
@@ -495,7 +503,7 @@ async function cargarResponsabilidad() {
   const m = c.metricas;
   const tiles = [
     tile(fmt(n.con_bfi), "Personas con BFI-2", c.simulacion ? "sintéticas" : "con 14 días o más"),
-    ...n.grupos.map((g) => tile(fmt(g.n), NIVEL_INFO[g.nivel].nombre, `${pct(g.n / n.con_bfi)} · media ${fmt(g.media_bfi, 2)}`)),
+    ...n.grupos.map((g) => tile(fmt(g.n), `Responsabilidad ${NIVEL_INFO[g.nivel].nombre.toLowerCase()}`, `${pct(g.n / n.con_bfi)} · media ${fmt(g.media_bfi, 2)}`)),
     m.r_responsabilidad != null ? tile(fmt(m.r_responsabilidad, 2), "Qué tanto lo predice el uso", `correlación; error típico ±${fmt(n.rmse, 1)} puntos`) : "",
   ].join("");
   const tarjetas = n.grupos.map((g) => {
@@ -505,7 +513,7 @@ async function cargarResponsabilidad() {
       <div><span class="punto"></span>${esc(nombreP(p))} <span class="muted">${pct(k / total)}</span></div>
       <div class="barra-mini"><span style="width:${(100 * k) / total}%"></span></div></li>`).join("");
     return `<div class="tarjeta nivel" style="--c:var(${info.color})">
-      <div class="nivel-cabeza"><h3>${info.nombre}</h3><span class="muted">${info.rango} · ${g.n} personas</span></div>
+      <div class="nivel-cabeza"><h3>Responsabilidad ${info.nombre.toLowerCase()}</h3><span class="muted">${rangoNivel(g)} · ${g.n} personas</span></div>
       ${bloqueSenales(g.z, 0.3)}
       <dl>
         <dt>Pantalla al día</dt><dd>${fmt((md.pantalla_min ?? 0) / 60, 1)} h</dd>
@@ -521,13 +529,60 @@ async function cargarResponsabilidad() {
     <p class="muted">Estimación a partir del uso del teléfono, con un error típico de ±${fmt(n.rmse, 1)} puntos. No reemplaza el cuestionario.</p>
     ${est.length ? `<div class="tabla-envoltorio"><table><tr><th>Participante</th><th class="num">BFI-2 estimado</th><th>Nivel estimado</th></tr>${est.sort((a, b) => b.valor - a.valor).map((e) => `<tr class="clicable" data-id="${esc(e.id)}"><td>${esc(e.id.slice(0, 8))}</td><td class="num">${fmt(e.valor, 1)}</td><td><span class="punto" style="--c:var(${NIVEL_INFO[e.nivel].color})"></span>${NIVEL_INFO[e.nivel].nombre}</td></tr>`).join("")}</table></div>` : `<p class="muted">No hay personas para estimar.</p>`}</div>`;
   $("#resp-cuerpo").innerHTML = `<div class="tiles">${tiles}</div><div class="niveles">${tarjetas}</div>${tablaEst}
-    <p class="muted">Las señales a favor y en contra son hipótesis de estudios previos sobre el uso del teléfono y la responsabilidad; describen tendencias del grupo, no juicios sobre cada persona. Con 30 o más personas reales con BFI-2 se revisa cuáles se cumplen.</p>`;
+    <p class="muted">Los cuatro niveles son los cuartiles del grupo: cada uno junta a un cuarto de las personas con BFI-2 (cortes en ${n.cortes.map((x) => fmt(x, 2)).join(", ")}). Las señales a favor y en contra vienen de estudios publicados (pasa el cursor sobre cada una para ver la fuente); describen tendencias del grupo, no juicios sobre cada persona.</p>`;
   document.querySelectorAll("#resp-cuerpo tr[data-id]").forEach((tr) => (tr.onclick = () => abrirParticipante(tr.dataset.id).catch(() => {})));
+}
+
+// ---------- Modelo ----------
+
+const ETAPAS = {
+  base: { titulo: "1 · Simulación base", datos: "300 personas sintéticas con seis arquetipos bien separados",
+    cambio: "Primer ensayo: arquetipos marcados y una relación con la responsabilidad que depende del arquetipo. Sirve para comprobar que el método recupera grupos cuando existen." },
+  estudios: { titulo: "2 · Simulación calibrada con estudios", datos: "300 personas sintéticas ajustadas a cifras publicadas",
+    cambio: "Uso diario de unas 4 h y unos 80 desbloqueos (Andrews 2015, Bentley 2015, dscout 2016), arquetipos más mezclados entre sí, más de la mitad de usos cortos y una responsabilidad propia de cada persona que adelanta horarios y reduce el uso de madrugada con un efecto pequeño (Stachl 2020: r de 0,31)." },
+  reales: { titulo: "3 · Datos reales", datos: "Participantes reales con 14 días o más",
+    cambio: "El análisis con las personas que mandaron datos. Hoy son muy pocas para formar perfiles propios, por eso se ubican en el modelo calibrado." },
+};
+
+async function cargarModelo() {
+  const m = await api("/api/modelo");
+  const filas = m.etapas.map((e) => {
+    const info = ETAPAS[e.tipo];
+    if (!e.id) return `<tr><td><b>${info.titulo}</b><div class="muted">${info.datos}</div></td><td colspan="6" class="muted">Sin corrida todavía${e.tipo !== "reales" ? ` · <button type="button" class="enlace" data-sim-modelo="${e.tipo}">Correrla ahora</button>` : ""}</td></tr>`;
+    const x = e.metricas;
+    return `<tr><td><b>${info.titulo}</b><div class="muted">${info.datos} · corrida ${e.id}</div></td>
+      <td class="num">${fmt(x.personas)}</td><td class="num">${fmt(e.k)}</td>
+      <td class="num">${x.ari_arquetipos != null ? fmt(x.ari_arquetipos, 2) : "—"}</td>
+      <td class="num">${x.r_responsabilidad != null ? fmt(x.r_responsabilidad, 2) : "—"}</td>
+      <td class="num">${x.baja_confianza != null ? pct(x.baja_confianza) : "—"}</td>
+      <td class="num">${fmt(x.atipicos)}</td></tr>`;
+  }).join("");
+  const cambios = m.etapas.map((e) => `<li><b>${ETAPAS[e.tipo].titulo}.</b> ${ETAPAS[e.tipo].cambio}</li>`).join("");
+  const fin = m.etapas.find((e) => e.tipo === m.final);
+  let final = `<div class="tarjeta"><h3>Modelo final</h3><p class="muted">Corre la simulación calibrada con estudios para ver el modelo final.</p></div>`;
+  if (fin && fin.id) {
+    const total = fin.perfiles.reduce((a, p) => a + p.n, 0);
+    const perfiles = fin.perfiles.sort((a, b) => b.n - a.n).map((p) => `<li style="--c:${color(p.perfil)}">
+      <div><span class="punto"></span>${esc(p.nombre)} <span class="muted">${pct(p.n / total)}</span></div>
+      <div class="barra-mini"><span style="width:${(100 * p.n) / total}%"></span></div></li>`).join("");
+    const ub = fin.ubicados.length ? `<table><tr><th>Participante</th><th class="num">Días</th><th>Perfil</th><th class="num">Confianza</th></tr>${fin.ubicados.map((u) => `<tr class="clicable" data-id="${esc(u.id)}"><td>${esc(u.id.slice(0, 8))}</td><td class="num">${fmt(u.dias)}</td>
+      <td><span class="punto" style="--c:${color(u.perfil)}"></span>${esc(u.nombre)}${u.atipico ? ' <span class="estado atipico">Atípico</span>' : ""}</td><td class="num">${pct(u.prob)}</td></tr>`).join("")}</table>` : `<p class="muted">Aún no hay participantes reales para ubicar.</p>`;
+    final = `<div class="grid2"><div class="tarjeta"><h3>Modelo final: ${fmt(fin.k)} perfiles</h3>
+      <p class="muted">Simulación calibrada con estudios (corrida ${fin.id}). Es el modelo que se usa para ubicar a los participantes reales mientras no haya suficientes para formar perfiles propios.</p>
+      <ul class="mini-perfiles">${perfiles}</ul></div>
+      <div class="tarjeta"><h3>Dónde quedan tus participantes</h3><p class="muted">La marca de atípico solo se da con 14 días o más.</p><div class="tabla-envoltorio tabla-ubicados">${ub}</div></div></div>`;
+  }
+  $("#modelo-cuerpo").innerHTML = `<div class="tarjeta"><h3>Cómo cambió el modelo</h3>
+    <div class="tabla-envoltorio"><table class="tabla-etapas"><tr><th>Etapa</th><th class="num">Personas</th><th class="num">Perfiles</th><th class="num" title="Qué tanto coinciden los perfiles con los arquetipos plantados (0 a 1)">Coincide con arquetipos</th><th class="num" title="Correlación entre la responsabilidad estimada por el uso y la del BFI-2">Predice responsab.</th><th class="num">Dudosas</th><th class="num">Atípicos</th></tr>${filas}</table></div>
+    <p class="muted">La coincidencia con arquetipos solo existe en simulaciones. En estudios con datos reales la responsabilidad se predice con r cerca de 0,3 (Stachl 2020); una cifra mucho más alta en la simulación indica que está demasiado ordenada.</p></div>
+    <div class="tarjeta"><h3>Qué cambió en cada etapa</h3><ul class="lista-cambios">${cambios}</ul></div>${final}`;
+  document.querySelectorAll("#modelo-cuerpo [data-sim-modelo]").forEach((b) => (b.onclick = () => correrSimulacion(b.dataset.simModelo).then(() => aviso("Corriendo… vuelve a abrir esta pestaña en un minuto.")).catch((e) => aviso(e.message))));
+  document.querySelectorAll("#modelo-cuerpo tr[data-id]").forEach((tr) => (tr.onclick = () => abrirParticipante(tr.dataset.id).catch(() => {})));
 }
 
 // ---------- Navegación ----------
 
-const cargadores = { resumen: cargarResumen, participantes: cargarParticipantes, perfiles: cargarCorridas, responsabilidad: cargarResponsabilidad, analisis: cargarAnalisis };
+const cargadores = { resumen: cargarResumen, participantes: cargarParticipantes, perfiles: cargarCorridas, responsabilidad: cargarResponsabilidad, modelo: cargarModelo, analisis: cargarAnalisis };
 let refresco = null;
 
 async function mostrar(vista) {
