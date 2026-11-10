@@ -164,7 +164,7 @@ function pintarParticipantes() {
       return (x > y ? 1 : x < y ? -1 : 0) * (asc ? 1 : -1);
     });
   $("#tabla-participantes tbody").innerHTML = filas.slice(0, 500).map((p) => `<tr data-id="${esc(p.id)}">
-    <td>${p.alias ? `<b>${esc(p.alias)}</b> <span class="codigo">${esc(p.id)}</span>` : esc(p.id)}</td><td>${celdaNivel(p)}</td>
+    <td title="Código completo: ${esc(p.id)}">${p.alias ? `<b>${esc(p.alias)}</b> <span class="codigo">${esc(p.id.slice(0, 8))}</span>` : esc(p.id.slice(0, 8))}</td><td>${celdaNivel(p)}</td>
     <td class="secundario">${p.perfil != null ? celdaPerfil(p.perfil, p.perfil_nombre, p.prob, p.perfil2, p.perfil2_nombre, p.atipico) + ` <span class="fuente">${pct(p.prob)}${p.perfil_fuente === "modelo" ? " · modelo calibrado" : ""}</span>` : `<span class="muted">${p.dias < 14 ? "faltan días" : "sin corrida"}</span>`}</td>
     <td class="num">${p.dias}</td><td class="num">${pct(p.cobertura)}</td>
     <td>${p.ultimo_envio ? new Date(p.ultimo_envio).toLocaleString("es", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>

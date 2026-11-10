@@ -228,3 +228,5 @@ dl.cifras dd { font-weight: 600; color: var(--tinta); }
 .fuente { color: var(--muted); font-size: 12px; }
 td.secundario { color: var(--tinta-2); font-size: 13px; }
 .nivel-detalle { margin: 0 0 6px; font-weight: 600; }
+td.secundario { white-space: normal; min-width: 220px; }
+td.secundario .fuente { display: block; margin-top: 1px; }
