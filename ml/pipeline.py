@@ -38,7 +38,10 @@ def limpiar(diario):
     return d
 
 
-def features_por_persona(diario, dias_minimos=DIAS_MINIMOS):
+def features_por_persona(diario, dias_minimos=DIAS_MINIMOS, ajuste=None):
+    """Features por persona. Las transformaciones (logaritmos, columnas y medianas para rellenar) se
+    aprenden de este grupo y quedan en feats.attrs["ajuste"]; si se pasa `ajuste`, se aplican las de
+    otro grupo para que personas nuevas queden en la misma escala."""
     d = limpiar(diario)
     dias = d.groupby("participante_id").size()
     validos = dias[dias >= dias_minimos].index
@@ -51,14 +54,22 @@ def features_por_persona(diario, dias_minimos=DIAS_MINIMOS):
         s = d.groupby(["participante_id", "finde"])[c].median().unstack().reindex(columns=[False, True])
         feats[f"{c}_dif_finde"] = (s[True] - s[False]).reindex(feats.index)
     feats["dias_validos"] = dias.reindex(feats.index)
-    # Logaritmo para tiempos y conteos sesgados
-    for c in feats.columns:
-        if (feats[c] >= 0).all() and feats[c].skew() > 1:
-            feats[c] = np.log1p(feats[c])
-    # Columnas que solo tenían personas sin días suficientes quedan vacías: se descartan
-    feats = feats.dropna(axis=1, how="all")
-    feats = feats.fillna(feats.median())
     excluidas = sorted(set(dias.index) - set(validos))
+    if ajuste is None:
+        # Logaritmo para tiempos y conteos sesgados
+        logs = [c for c in feats.columns if (feats[c] >= 0).all() and feats[c].skew() > 1]
+        for c in logs:
+            feats[c] = np.log1p(feats[c])
+        # Columnas que solo tenían personas sin días suficientes quedan vacías: se descartan
+        feats = feats.dropna(axis=1, how="all")
+        ajuste = dict(logs=logs, columnas=list(feats.columns), medianas=feats.median())
+    else:
+        feats = feats.reindex(columns=ajuste["columnas"])
+        for c in ajuste["logs"]:
+            if c in feats.columns:
+                feats[c] = np.log1p(feats[c].clip(lower=0))
+    feats = feats.fillna(ajuste["medianas"])
+    feats.attrs["ajuste"] = ajuste
     return feats, excluidas
 
 

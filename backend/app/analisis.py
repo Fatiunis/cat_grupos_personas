@@ -115,10 +115,8 @@ def calcular(diario, etiquetas=None, k=None, ubicar=None):
         raise ValueError(f"Hay {len(feats)} personas con al menos {DIAS_MINIMOS} días; se necesitan 30 o más.")
     nuevos = None
     if ubicar is not None and not ubicar.empty:
-        # Se calculan juntas para que ambas pasen por las mismas transformaciones (logaritmos, faltantes)
-        todo, _ = features_por_persona(pd.concat([diario, ubicar], ignore_index=True), dias_minimos=1)
-        nuevos = todo.drop(index=feats.index, errors="ignore")
-        feats = todo.loc[feats.index]
+        # Mismas transformaciones que el grupo del modelo, sin que estas personas cambien el ajuste
+        nuevos, _ = features_por_persona(ubicar, dias_minimos=1, ajuste=feats.attrs["ajuste"])
         # Llevar pocos días no es un rasgo de uso: se les pone la duración típica para no alejarlos por eso
         nuevos["dias_validos"] = feats.dias_validos.median()
     X = quitar_redundantes(feats)
@@ -203,6 +201,8 @@ def _corrida_simulada(db, corrida, sim):
     reales = cargar_diario(db)
     if not reales.empty and "pantalla_min" in reales.columns:
         reales = reales[~reales.participante_id.isin(set(diario.participante_id))]
+        # Columnas que la app aún no manda quedan vacías y se rellenan con la mediana del modelo
+        reales = reales.reindex(columns=reales.columns.union(diario.columns.drop("arquetipo", errors="ignore")))
         for c in reales.columns.difference(["participante_id", "fecha"]):
             if reales[c].dtype == object:
                 reales[c] = pd.to_numeric(reales[c], errors="coerce") if c != "arquetipo" else reales[c]
