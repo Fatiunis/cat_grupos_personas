@@ -116,6 +116,15 @@ async function cargarParticipantes() {
   pintarParticipantes();
 }
 
+// Perfil de una persona: el más probable; si la confianza es baja, también el segundo; y la marca de atípico
+function celdaPerfil(perfil, nombre, prob, perfil2, nombre2, atipico) {
+  if (perfil == null) return "";
+  let h = `<span class="punto" style="--c:${color(perfil)}"></span>${esc(nombre)}`;
+  if (prob != null && prob < 0.6 && perfil2 != null) h += ` <span class="muted">o</span> <span class="punto" style="--c:${color(perfil2)}"></span>${esc(nombre2)}`;
+  if (atipico) h += ` <span class="estado atipico" title="No se parece mucho a ningún perfil">Atípico</span>`;
+  return h;
+}
+
 function activo(p) {
   return p.ultimo_envio && Date.now() - new Date(p.ultimo_envio) < 3 * 864e5;
 }
@@ -134,7 +143,7 @@ function pintarParticipantes() {
   $("#tabla-participantes tbody").innerHTML = filas.slice(0, 500).map((p) => `<tr data-id="${esc(p.id)}">
     <td>${esc(p.id)}</td><td class="num">${p.dias}</td><td class="num">${pct(p.cobertura)}</td>
     <td>${p.ultimo_envio ? new Date(p.ultimo_envio).toLocaleString("es", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
-    <td>${p.perfil != null ? `<span class="punto" style="--c:${color(p.perfil)}"></span>${esc(p.perfil_nombre)}` : `<span class="muted">${p.dias < 14 ? "faltan días" : "sin corrida"}</span>`}</td>
+    <td>${p.perfil != null ? celdaPerfil(p.perfil, p.perfil_nombre, p.prob, p.perfil2, p.perfil2_nombre, p.atipico) : `<span class="muted">${p.dias < 14 ? "faltan días" : "sin corrida"}</span>`}</td>
     <td class="num">${p.prob != null ? pct(p.prob) : "—"}</td><td class="num">${fmt(p.bfi2, 2)}</td>
     <td>${p.excluido ? '<span class="estado mal">Excluido</span>' : activo(p) ? '<span class="estado ok">Activo</span>' : '<span class="estado">Inactivo</span>'}</td></tr>`).join("");
   $("#conteo-participantes").textContent = `${filas.length} de ${estado.participantes.length} participantes` + (filas.length > 500 ? " (se muestran 500; usa la búsqueda)" : "");
@@ -228,6 +237,31 @@ const FRASES = {
   lugares_distintos_med: ["pasan por muchos lugares distintos", "se mueven por pocos lugares"],
 };
 
+// Señales para la responsabilidad (hipótesis de estudios previos): [1 si lo alto favorece, -1 si lo alto juega en contra, frase a favor, frase en contra]
+const SENALES = {
+  hora_primer_uso_sd: [-1, "Horarios regulares", "Horarios que cambian mucho"],
+  uso_nocturno_min_med: [-1, "Casi sin uso de madrugada", "Uso de madrugada"],
+  veces_bateria_baja_med: [-1, "Cuida la batería", "Deja que la batería se agote"],
+  pct_productividad_med: [1, "Más apps de trabajo y estudio", "Pocas apps de trabajo y estudio"],
+  desbloqueos_med: [-1, "Revisa el teléfono pocas veces", "Revisa el teléfono muy seguido"],
+  pct_social_med: [-1, "Poco tiempo en redes", "Mucho tiempo en redes"],
+  pct_juegos_med: [-1, "Poco tiempo en juegos", "Mucho tiempo en juegos"],
+};
+
+function senales(z, umbral = 0.5) {
+  const favor = [], contra = [];
+  Object.entries(z || {}).filter(([v, x]) => SENALES[v] && Math.abs(x) >= umbral)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+    .forEach(([v, x]) => (Math.sign(x) === SENALES[v][0] ? favor : contra).push(SENALES[v][Math.sign(x) === SENALES[v][0] ? 1 : 2]));
+  return { favor, contra };
+}
+
+function bloqueSenales(z, umbral) {
+  const s = senales(z, umbral);
+  if (!s.favor.length && !s.contra.length) return `<p class="muted senal-vacia">Sin señales marcadas para la responsabilidad.</p>`;
+  return `<div class="senales">${s.favor.map((t) => `<span class="senal a-favor">+ ${t}</span>`).join("")}${s.contra.map((t) => `<span class="senal en-contra">− ${t}</span>`).join("")}</div>`;
+}
+
 function definicion(p, bfiPerfil, bfiGeneral) {
   const rasgos = Object.entries(p.z || {})
     .filter(([v, z]) => FRASES[v] && Math.abs(z) >= 0.5)
@@ -250,7 +284,8 @@ async function cargarCorrida(id) {
   $("#tiles-perfiles").innerHTML = [
     tile(fmt(m.personas), "Personas con perfil", `${m.sin_perfil_pocos_dias} sin perfil por pocos días`),
     tile(c.k, "Perfiles", c.k_pedido ? "fijado a mano" : `elegido automáticamente`),
-    tile(pct(m.baja_confianza), "Asignación dudosa", "confianza menor a 60 %"),
+    tile(pct(m.baja_confianza), "Asignación dudosa", "confianza menor a 60 %; se muestra la 2.ª opción"),
+    m.atipicos != null ? tile(fmt(m.atipicos), "Atípicos", "no se parecen mucho a ningún perfil") : "",
     m.exactitud_clasificador != null ? tile(pct(m.exactitud_clasificador), "Exactitud del clasificador", "para asignar personas nuevas") : "",
     m.r_responsabilidad != null ? tile(fmt(m.r_responsabilidad, 2), "Correlación con BFI-2", "predicción vs. cuestionario (r)") : "",
     m.ari_arquetipos != null ? tile(fmt(m.ari_arquetipos, 2), "ARI vs. arquetipos", "solo sintéticos, meta ≥ 0,7") : "",
@@ -265,6 +300,7 @@ async function cargarCorrida(id) {
       <textarea class="nombre" rows="2" data-perfil="${p.perfil}" aria-label="Nombre del perfil" title="Clic para renombrar">${esc(p.nombre)}</textarea>
       <div class="muted">${p.n} personas · confianza media ${pct(p.prob_media)}</div>
       <p class="definicion">${definicion(p, bfi.get(p.perfil), bfiGeneral)}</p>
+      ${bloqueSenales(p.z)}
       <dl>
         <dt>Pantalla al día</dt><dd>${fmt((md.pantalla_min ?? 0) / 60, 1)} h</dd>
         <dt>Desbloqueos</dt><dd>${fmt(md.desbloqueos)}</dd>
@@ -299,7 +335,7 @@ async function cargarCorrida(id) {
   $("#tabla-ubicados").innerHTML = ub.length
     ? `<tr><th>Participante</th><th class="num">Días</th><th>Perfil más parecido</th><th class="num">Confianza</th></tr>` +
       ub.sort((a, b) => b.dias - a.dias).map((u) => `<tr class="clicable" data-id="${esc(u.id)}"><td>${esc(u.id.slice(0, 8))}</td><td class="num">${u.dias}</td>` +
-        `<td><span class="punto" style="--c:${color(u.perfil)}"></span>${esc(nombreP(u.perfil))}</td><td class="num">${pct(u.prob)}</td></tr>`).join("")
+        `<td>${celdaPerfil(u.perfil, nombreP(u.perfil), u.prob, u.perfil2, nombreP(u.perfil2), u.atipico)}</td><td class="num">${pct(u.prob)}</td></tr>`).join("")
     : `<tr><td class="muted">Aún no hay días de participantes reales para ubicar.</td></tr>`;
   document.querySelectorAll("#tabla-ubicados tr[data-id]").forEach((tr) => (tr.onclick = () => abrirParticipante(tr.dataset.id)));
 
@@ -430,9 +466,68 @@ $("#form-etiquetas").onsubmit = async (e) => {
   } catch (err) { $("#res-etiquetas").textContent = err.message; }
 };
 
+// ---------- Responsabilidad ----------
+
+const NIVEL_INFO = {
+  baja: { nombre: "Responsabilidad baja", rango: "BFI-2 hasta 2,9", color: "--s5" },
+  media: { nombre: "Responsabilidad media", rango: "BFI-2 de 3,0 a 3,9", color: "--s2" },
+  alta: { nombre: "Responsabilidad alta", rango: "BFI-2 de 4,0 o más", color: "--s1" },
+};
+
+async function cargarResponsabilidad() {
+  const lista = (await api("/api/corridas")).filter((c) => c.estado === "lista");
+  const sel = $("#sel-corrida-r");
+  const actual = Number(sel.value) || (lista.find((c) => !c.simulacion) || lista[0])?.id;
+  sel.innerHTML = lista.map((c) => `<option value="${c.id}">${c.simulacion ? "Simulación · " : ""}Corrida ${c.id} · ${new Date(c.creada).toLocaleString("es", { dateStyle: "short", timeStyle: "short" })}</option>`).join("");
+  if (!actual) {
+    $("#resp-cuerpo").innerHTML = `<div class="tarjeta"><p class="muted">Todavía no hay corridas. Ve a <a href="#analisis">Análisis</a> y corre la demostración o el análisis.</p></div>`;
+    return;
+  }
+  sel.value = actual;
+  const c = await api(`/api/corridas/${actual}`);
+  $("#aviso-sim-r").hidden = !c.simulacion;
+  const n = c.niveles;
+  if (!n || !n.grupos) {
+    $("#resp-cuerpo").innerHTML = `<div class="tarjeta"><h3>Faltan cuestionarios</h3><p class="muted">Los niveles se forman con el BFI-2. Esta corrida tiene ${n?.con_bfi ?? 0} personas con cuestionario y se necesitan 30 (faltan ${n?.faltan ?? 30}). Mientras tanto puedes ver cómo se vería con la demostración.</p></div>`;
+    return;
+  }
+  const nombreP = (k) => c.perfiles.find((p) => p.perfil === Number(k))?.nombre ?? `Perfil ${k}`;
+  const m = c.metricas;
+  const tiles = [
+    tile(fmt(n.con_bfi), "Personas con BFI-2", c.simulacion ? "sintéticas" : "con 14 días o más"),
+    ...n.grupos.map((g) => tile(fmt(g.n), NIVEL_INFO[g.nivel].nombre, `${pct(g.n / n.con_bfi)} · media ${fmt(g.media_bfi, 2)}`)),
+    m.r_responsabilidad != null ? tile(fmt(m.r_responsabilidad, 2), "Qué tanto lo predice el uso", `correlación; error típico ±${fmt(n.rmse, 1)} puntos`) : "",
+  ].join("");
+  const tarjetas = n.grupos.map((g) => {
+    const info = NIVEL_INFO[g.nivel], md = g.medianas || {};
+    const total = Object.values(g.perfiles).reduce((a, b) => a + b, 0);
+    const mezcla = Object.entries(g.perfiles).sort((a, b) => b[1] - a[1]).map(([p, k]) => `<li style="--c:${color(Number(p))}">
+      <div><span class="punto"></span>${esc(nombreP(p))} <span class="muted">${pct(k / total)}</span></div>
+      <div class="barra-mini"><span style="width:${(100 * k) / total}%"></span></div></li>`).join("");
+    return `<div class="tarjeta nivel" style="--c:var(${info.color})">
+      <div class="nivel-cabeza"><h3>${info.nombre}</h3><span class="muted">${info.rango} · ${g.n} personas</span></div>
+      ${bloqueSenales(g.z, 0.3)}
+      <dl>
+        <dt>Pantalla al día</dt><dd>${fmt((md.pantalla_min ?? 0) / 60, 1)} h</dd>
+        <dt>Desbloqueos</dt><dd>${fmt(md.desbloqueos)}</dd>
+        <dt>Uso nocturno (0–5 h)</dt><dd>${fmt(md.uso_nocturno_min)} min</dd>
+        <dt>Primer / último uso</dt><dd>${hora(md.hora_primer_uso)} / ${hora(md.hora_ultimo_uso)}</dd>
+        ${md.q_cumplimiento != null ? `<dt>Cumplimiento diario (1–5)</dt><dd>${fmt(md.q_cumplimiento, 1)}</dd>` : ""}
+      </dl>
+      <h4>Perfiles de uso en este nivel</h4><ul class="mini-perfiles">${mezcla}</ul></div>`;
+  }).join("");
+  const est = n.estimados || [];
+  const tablaEst = `<div class="tarjeta"><h3>${c.simulacion ? "Tus participantes: nivel estimado por su uso" : "Participantes sin BFI-2: nivel estimado por su uso"}</h3>
+    <p class="muted">Estimación a partir del uso del teléfono, con un error típico de ±${fmt(n.rmse, 1)} puntos. No reemplaza el cuestionario.</p>
+    ${est.length ? `<div class="tabla-envoltorio"><table><tr><th>Participante</th><th class="num">BFI-2 estimado</th><th>Nivel estimado</th></tr>${est.sort((a, b) => b.valor - a.valor).map((e) => `<tr class="clicable" data-id="${esc(e.id)}"><td>${esc(e.id.slice(0, 8))}</td><td class="num">${fmt(e.valor, 1)}</td><td><span class="punto" style="--c:var(${NIVEL_INFO[e.nivel].color})"></span>${NIVEL_INFO[e.nivel].nombre}</td></tr>`).join("")}</table></div>` : `<p class="muted">No hay personas para estimar.</p>`}</div>`;
+  $("#resp-cuerpo").innerHTML = `<div class="tiles">${tiles}</div><div class="niveles">${tarjetas}</div>${tablaEst}
+    <p class="muted">Las señales a favor y en contra son hipótesis de estudios previos sobre el uso del teléfono y la responsabilidad; describen tendencias del grupo, no juicios sobre cada persona. Con 30 o más personas reales con BFI-2 se revisa cuáles se cumplen.</p>`;
+  document.querySelectorAll("#resp-cuerpo tr[data-id]").forEach((tr) => (tr.onclick = () => abrirParticipante(tr.dataset.id).catch(() => {})));
+}
+
 // ---------- Navegación ----------
 
-const cargadores = { resumen: cargarResumen, participantes: cargarParticipantes, perfiles: cargarCorridas, analisis: cargarAnalisis };
+const cargadores = { resumen: cargarResumen, participantes: cargarParticipantes, perfiles: cargarCorridas, responsabilidad: cargarResponsabilidad, analisis: cargarAnalisis };
 let refresco = null;
 
 async function mostrar(vista) {
@@ -453,6 +548,7 @@ $("#buscar").oninput = pintarParticipantes;
 $("#filtro-perfil").onchange = pintarParticipantes;
 $("#filtro-estado").onchange = pintarParticipantes;
 $("#sel-corrida").onchange = (e) => cargarCorrida(Number(e.target.value));
+$("#sel-corrida-r").onchange = () => cargarResponsabilidad().catch((e) => aviso(e.message));
 $("#tabla-participantes thead").onclick = (e) => {
   const col = e.target.dataset.col;
   if (!col) return;

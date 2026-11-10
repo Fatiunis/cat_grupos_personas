@@ -152,6 +152,7 @@ def participantes(db: Session = Depends(get_db)):
     c = _corrida_actual(db)
     asign = {a.participante_id: a for a in db.scalars(select(Asignacion).where(Asignacion.corrida_id == c.id))} if c else {}
     nombres = {p["perfil"]: p["nombre"] for p in c.resultado["perfiles"]} if c else {}
+    extra = (c.resultado or {}).get("extra", {}) if c else {}
     stats = {pid: (n, f0, f1) for pid, n, f0, f1 in db.execute(
         select(Dia.participante_id, func.count(), func.min(Dia.fecha), func.max(Dia.fecha)).group_by(Dia.participante_id))}
     out = []
@@ -162,7 +163,9 @@ def participantes(db: Session = Depends(get_db)):
         out.append(dict(id=p.id, dias=n, primer_dia=f0 and f0.isoformat(), ultimo_dia=f1 and f1.isoformat(),
                         cobertura=round(cobertura, 3), ultimo_envio=p.ultimo_envio and p.ultimo_envio.isoformat(),
                         excluido=p.excluido, notas=p.notas, bfi2=p.bfi2_responsabilidad,
-                        perfil=a and a.perfil, perfil_nombre=a and nombres.get(a.perfil), prob=a and round(a.prob, 3)))
+                        perfil=a and a.perfil, perfil_nombre=a and nombres.get(a.perfil), prob=a and round(a.prob, 3),
+                        **(extra.get(p.id, {}) if a else {}),
+                        perfil2_nombre=a and nombres.get(extra.get(p.id, {}).get("perfil2"))))
     return out
 
 
@@ -258,8 +261,10 @@ def corrida(cid: int, db: Session = Depends(get_db)):
     res = dict(c.resultado or {})
     puntos = res.pop("puntos_sim", None)
     sim = res.pop("simulacion", None)
+    extra = res.pop("extra", {})
     if puntos is None:
-        puntos = [dict(id=a.participante_id, perfil=a.perfil, prob=round(a.prob, 3), x=round(a.x, 3), y=round(a.y, 3))
+        puntos = [dict(id=a.participante_id, perfil=a.perfil, prob=round(a.prob, 3), x=round(a.x, 3), y=round(a.y, 3),
+                       **extra.get(a.participante_id, {}))
                   for a in db.scalars(select(Asignacion).where(Asignacion.corrida_id == cid))]
     return dict(id=c.id, creada=c.creada.isoformat(), estado=c.estado, k=c.k, k_pedido=c.k_pedido, error=c.error,
                 **res, simulacion=bool(sim), puntos=puntos)

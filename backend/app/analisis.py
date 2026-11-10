@@ -104,6 +104,31 @@ def _limpio(x):
     return x
 
 
+# Niveles de responsabilidad según el puntaje BFI-2 (escala 1 a 5)
+CORTES_NIVEL = (2.95, 3.95)
+NIVELES = ["baja", "media", "alta"]
+
+
+def nivel_de(v):
+    return NIVELES[int(v > CORTES_NIVEL[0]) + int(v > CORTES_NIVEL[1])]
+
+
+def niveles_responsabilidad(feats, y, perfiles, legibles):
+    """Agrupa a las personas con BFI-2 en baja, media y alta, y describe el uso de cada nivel."""
+    nivel = y.map(nivel_de)
+    claves = [c for c in NOMBRES_VARIABLES if c in feats.columns]
+    z = (feats[claves] - feats[claves].mean()) / feats[claves].std()
+    out = []
+    for nv in NIVELES:
+        ids = nivel[nivel == nv].index
+        if not len(ids):
+            continue
+        out.append(dict(nivel=nv, n=int(len(ids)), media_bfi=float(y[ids].mean()),
+                        z=z.loc[ids].mean().round(2).to_dict(), medianas=legibles.loc[ids].median().to_dict(),
+                        perfiles={int(p): int(c) for p, c in perfiles[ids].value_counts().items()}))
+    return dict(cortes=list(CORTES_NIVEL), con_bfi=int(len(y)), grupos=out)
+
+
 def calcular(diario, etiquetas=None, k=None, ubicar=None):
     """Devuelve (resultado, asignaciones). Misma lógica que pipeline.main().
 
@@ -131,7 +156,17 @@ def calcular(diario, etiquetas=None, k=None, ubicar=None):
     k_final = k or k_auto
     gm = GaussianMixture(k_final, covariance_type="tied", n_init=5, random_state=0).fit(Z)
     perfiles = pd.Series(gm.predict(Z), index=feats.index, name="perfil")
-    prob = gm.predict_proba(Z).max(axis=1)
+    P = gm.predict_proba(Z)
+    prob = P.max(axis=1)
+    # Atípico: tan lejos de todos los perfiles como el 2,5 % más alejado del grupo con que se ajustó.
+    # La probabilidad solo compara perfiles entre sí; esta marca mira la distancia a todos.
+    umbral_atipico = float(np.percentile(gm.score_samples(Z), 2.5))
+
+    def detalle(probs, Zs):
+        orden = np.argsort(-probs, axis=1)
+        atip = gm.score_samples(Zs) < umbral_atipico
+        return [dict(perfil2=int(o[1]) if len(o) > 1 else None, prob2=round(float(pr[o[1]]), 3) if len(o) > 1 else 0.0,
+                     atipico=bool(a)) for pr, o, a in zip(probs, orden, atip)]
 
     z = describir_perfiles(feats, perfiles)
     legibles = medianas_por_persona(diario).reindex(feats.index)
@@ -147,7 +182,7 @@ def calcular(diario, etiquetas=None, k=None, ubicar=None):
 
     metricas = dict(personas=len(feats), sin_perfil_pocos_dias=len(excluidas), features=feats.shape[1],
                     features_sin_redundantes=X.shape[1], componentes_pca=Z.shape[1], k_automatico=k_auto,
-                    baja_confianza=float((prob < 0.6).mean()),
+                    baja_confianza=float((prob < 0.6).mean()), atipicos=int((gm.score_samples(Z) < umbral_atipico).sum()),
                     varianza_mapa=float(pca.explained_variance_ratio_[:2].sum()))
 
     if len(perfiles.unique()) > 1 and perfiles.value_counts().min() >= 2:
@@ -164,25 +199,44 @@ def calcular(diario, etiquetas=None, k=None, ubicar=None):
         cruce = dict(filas=ct.index.tolist(), columnas=[int(c) for c in ct.columns], valores=ct.values.tolist())
 
     etiqueta_por_perfil = None
+    modelo_resp = None
+    n_etiquetas = 0
     if etiquetas is not None:
         y = etiquetas.reindex(feats.index)
-        if y.notna().sum() >= 30:
+        n_etiquetas = int(y.notna().sum())
+        if n_etiquetas >= 30:
             ok = y.notna()
             etiqueta_por_perfil = [dict(perfil=int(p), media=g.mean(), sd=g.std(), n=int(g.count()))
                                    for p, g in y[ok].groupby(perfiles[ok])]
-            pred = cross_val_predict(make_pipeline(RobustScaler(), HistGradientBoostingRegressor(max_depth=3, random_state=0)),
-                                     X[ok], y[ok], cv=5)
+            regresor = lambda: make_pipeline(RobustScaler(), HistGradientBoostingRegressor(max_depth=3, random_state=0))  # noqa: E731
+            pred = cross_val_predict(regresor(), X[ok], y[ok], cv=5)
             metricas["r_responsabilidad"] = float(np.corrcoef(pred, y[ok])[0, 1])
+            modelo_resp = (regresor().fit(X[ok], y[ok]), float(np.sqrt(np.mean((pred - y[ok]) ** 2))), y, ok)
+
+    niveles = None
+    if modelo_resp is not None:
+        modelo, rmse, y, ok = modelo_resp
+        niveles = niveles_responsabilidad(feats, y[ok], perfiles[ok], legibles)
+        niveles["rmse"] = rmse
+        estimar = [(pid, fila) for pid, fila in X[~ok].iterrows()]
+        if nuevos is not None and len(nuevos):
+            estimar += list(nuevos[X.columns].iterrows())
+        if estimar:
+            valores = modelo.predict(pd.DataFrame([f for _, f in estimar], columns=X.columns))
+            niveles["estimados"] = [dict(id=pid, valor=float(v), nivel=nivel_de(v)) for (pid, _), v in zip(estimar, valores)]
+    else:
+        niveles = dict(faltan=max(0, 30 - n_etiquetas), con_bfi=n_etiquetas)
 
     resultado = _limpio(dict(metricas=metricas, tabla_k=tabla_k.to_dict(orient="records"), perfiles=por_perfil,
-                             cruce_arquetipos=cruce, responsabilidad=etiqueta_por_perfil))
+                             cruce_arquetipos=cruce, responsabilidad=etiqueta_por_perfil, niveles=niveles))
+    resultado["extra"] = {pid: d for pid, d in zip(feats.index, detalle(P, Z))}
     if nuevos is not None and len(nuevos):
         Zn = pca.transform(escalador.transform(nuevos[X.columns]))
         pn = gm.predict_proba(Zn)
         dias_n = ubicar.groupby("participante_id").size()
         resultado["ubicados"] = [dict(id=pid, perfil=int(pr.argmax()), prob=round(float(pr.max()), 3), dias=int(dias_n.get(pid, 0)),
-                                      x=round(float(zz[0]), 3), y=round(float(zz[1] if len(zz) > 1 else 0), 3))
-                                 for pid, pr, zz in zip(nuevos.index, pn, Zn)]
+                                      x=round(float(zz[0]), 3), y=round(float(zz[1] if len(zz) > 1 else 0), 3), **d)
+                                 for pid, pr, zz, d in zip(nuevos.index, pn, Zn, detalle(pn, Zn))]
     asign = [dict(participante_id=pid, perfil=int(perfiles[pid]), prob=float(pr), x=float(zz[0]), y=float(zz[1] if len(zz) > 1 else 0))
              for pid, pr, zz in zip(feats.index, prob, Z)]
     return resultado, asign
@@ -210,8 +264,9 @@ def _corrida_simulada(db, corrida, sim):
         reales = None
     resultado, asign = calcular(diario, bfi, corrida.k_pedido, ubicar=reales)
     resultado["simulacion"] = sim
+    extra = resultado.pop("extra")
     resultado["puntos_sim"] = [dict(id=a["participante_id"], perfil=a["perfil"], prob=round(a["prob"], 3),
-                                    x=round(a["x"], 3), y=round(a["y"], 3)) for a in asign]
+                                    x=round(a["x"], 3), y=round(a["y"], 3), **extra[a["participante_id"]]) for a in asign]
     corrida.resultado, corrida.k, corrida.estado = resultado, len(resultado["perfiles"]), "lista"
 
 
