@@ -8,5 +8,7 @@ COPY ml ml
 COPY backend backend
 WORKDIR /srv/backend
 ENV PORT=8000
+# Un hilo por librería numérica: en planes con poca CPU, muchos hilos se estorban y el análisis tarda minutos
+ENV OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 EXPOSE 8000
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]

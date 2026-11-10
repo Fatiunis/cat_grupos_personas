@@ -55,7 +55,7 @@ function linea(id, etiquetas, valores, { formato = (v) => fmt(v), max } = {}) {
   op.plugins.tooltip.callbacks = { label: (c) => formato(c.parsed.y) };
   grafico(id, {
     type: "line",
-    data: { labels: etiquetas, datasets: [{ data: valores, borderColor: css("--s1"), borderWidth: 2, pointRadius: 0, pointHoverRadius: 5, tension: 0.2, spanGaps: true }] },
+    data: { labels: etiquetas, datasets: [{ data: valores, borderColor: css("--s1"), backgroundColor: css("--s1") + "1f", fill: "origin", borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, cubicInterpolationMode: "monotone", spanGaps: true }] },
     options: op,
   });
 }
@@ -82,15 +82,24 @@ async function cargarResumen() {
   $("#actualizado").textContent = `Actualizado ${new Date().toLocaleTimeString("es")} · se refresca cada 30 s`;
 
   const mini = $("#perfiles-mini");
-  if (!r.corrida_actual) {
+  // Sin corrida real todavía, se muestra la última demostración (marcada como tal)
+  let id = r.corrida_actual?.id;
+  if (!id) id = (await api("/api/corridas")).find((x) => x.estado === "lista" && x.simulacion)?.id;
+  if (!id) {
     mini.innerHTML = `<h3>Perfiles</h3><p class="muted">Todavía no hay una corrida del análisis. Ve a <a href="#analisis">Análisis</a> para crear una.</p>`;
     return;
   }
-  const c = await api(`/api/corridas/${r.corrida_actual.id}`);
+  const c = await api(`/api/corridas/${id}`);
   const total = c.perfiles.reduce((a, p) => a + p.n, 0);
-  mini.innerHTML = `<h3>Perfiles actuales</h3><p class="muted">Corrida ${c.id}, ${new Date(c.creada).toLocaleString("es")}</p>
-    <table>${c.perfiles.map((p) => `<tr><td><span class="punto" style="--c:${color(p.perfil)}"></span>${esc(p.nombre)}</td>
-      <td class="num">${p.n}</td><td class="num">${pct(p.n / total)}</td></tr>`).join("")}</table>`;
+  const reales = new Map();
+  (c.ubicados || []).forEach((u) => reales.set(u.perfil, (reales.get(u.perfil) || 0) + 1));
+  mini.innerHTML = `<h3>${c.simulacion ? "Perfiles de la demostración" : "Perfiles actuales"}</h3>
+    <p class="muted">${c.simulacion ? '<span class="estado sim">Simulación</span> ' : ""}Corrida ${c.id} · ${new Date(c.creada).toLocaleDateString("es")}</p>
+    <ul class="mini-perfiles">${c.perfiles.map((p) => `<li style="--c:${color(p.perfil)}">
+      <div><span class="punto"></span>${esc(p.nombre)}</div>
+      <div class="barra-mini"><span style="width:${(100 * p.n) / total}%"></span></div>
+      <div class="muted">${pct(p.n / total)}${c.simulacion && reales.get(p.perfil) ? ` · ${reales.get(p.perfil)} de tus participantes` : ""}</div></li>`).join("")}</ul>
+    <a class="ver-mas" href="#perfiles">Ver perfiles →</a>`;
 }
 
 // ---------- Participantes ----------
@@ -203,6 +212,34 @@ function celdaZ(v) {
   return `<td class="celda" style="background:${fondo};color:${tinta}" title="${fmt(v, 2)} desv. est.">${v > 0 ? "+" : ""}${fmt(v, 1)}</td>`;
 }
 
+// Frases para describir un perfil según las variables en que más se aleja del promedio (alto, bajo)
+const FRASES = {
+  pantalla_min_med: ["pasan mucho tiempo frente a la pantalla", "usan poco el teléfono"],
+  desbloqueos_med: ["lo revisan muy seguido", "lo desbloquean pocas veces al día"],
+  uso_nocturno_min_med: ["lo usan de madrugada", "casi no lo usan de madrugada"],
+  pct_social_med: ["dedican buena parte del tiempo a redes sociales", "dedican poco tiempo a redes sociales"],
+  pct_juegos_med: ["dedican mucho tiempo a juegos", "casi no juegan"],
+  pct_productividad_med: ["usan más apps de trabajo y productividad", "usan poco apps de productividad"],
+  hora_primer_uso_sd: ["tienen horarios que cambian mucho de un día a otro", "mantienen horarios regulares"],
+  veces_bateria_baja_med: ["suelen dejar que la batería se agote", "cuidan la batería"],
+  pasos_med: ["caminan bastante", "caminan poco"],
+  lugares_distintos_med: ["pasan por muchos lugares distintos", "se mueven por pocos lugares"],
+};
+
+function definicion(p, bfiPerfil, bfiGeneral) {
+  const rasgos = Object.entries(p.z || {})
+    .filter(([v, z]) => FRASES[v] && Math.abs(z) >= 0.5)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 3)
+    .map(([v, z]) => (Math.abs(z) >= 1.2 ? "<b>" : "") + FRASES[v][z > 0 ? 0 : 1] + (Math.abs(z) >= 1.2 ? "</b>" : ""));
+  const lista = rasgos.length > 1 ? `${rasgos.slice(0, -1).join(", ")} y ${rasgos.at(-1)}` : rasgos[0];
+  let t = lista ? `Personas que ${lista}.` : "Personas con un uso cercano al promedio en casi todo.";
+  if (bfiPerfil && bfiGeneral != null) {
+    const d = bfiPerfil.media - bfiGeneral;
+    t += ` Responsabilidad (BFI-2) ${fmt(bfiPerfil.media, 2)}, ${Math.abs(d) < 0.1 ? "parecida al" : d > 0 ? "por encima del" : "por debajo del"} promedio (${fmt(bfiGeneral, 2)}).`;
+  }
+  return t;
+}
+
 async function cargarCorrida(id) {
   const c = await api(`/api/corridas/${id}`);
   estado.corrida = c;
@@ -218,11 +255,14 @@ async function cargarCorrida(id) {
   ].join("");
 
   const bfi = new Map((c.responsabilidad || []).map((r) => [r.perfil, r]));
+  const nBfi = (c.responsabilidad || []).reduce((a, r) => a + r.n, 0);
+  const bfiGeneral = nBfi ? c.responsabilidad.reduce((a, r) => a + r.media * r.n, 0) / nBfi : null;
   $("#tarjetas-perfil").innerHTML = c.perfiles.map((p) => {
     const md = p.medianas;
     return `<div class="tarjeta perfil" style="--c:${color(p.perfil)}">
       <textarea class="nombre" rows="2" data-perfil="${p.perfil}" aria-label="Nombre del perfil" title="Clic para renombrar">${esc(p.nombre)}</textarea>
       <div class="muted">${p.n} personas · confianza media ${pct(p.prob_media)}</div>
+      <p class="definicion">${definicion(p, bfi.get(p.perfil), bfiGeneral)}</p>
       <dl>
         <dt>Pantalla al día</dt><dd>${fmt((md.pantalla_min ?? 0) / 60, 1)} h</dd>
         <dt>Desbloqueos</dt><dd>${fmt(md.desbloqueos)}</dd>
@@ -421,5 +461,5 @@ $("#tabla-participantes tbody").onclick = (e) => {
   const tr = e.target.closest("tr");
   if (tr) abrirParticipante(tr.dataset.id);
 };
-Chart.defaults.font.family = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+Chart.defaults.font.family = '"Nunito", system-ui, -apple-system, "Segoe UI", sans-serif';
 mostrar(location.hash.slice(1));
