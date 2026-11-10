@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pandas as pd
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -370,9 +370,18 @@ def salud():
     return {"ok": True, "hora": datetime.now(timezone.utc).isoformat()}
 
 
+SIN_CACHE = {"Cache-Control": "no-cache"}  # el navegador revisa siempre si hay versión nueva
+
+
 @app.get("/", dependencies=[api])
 def inicio():
-    return FileResponse(STATIC / "index.html")
+    # Cada archivo lleva su fecha de cambio en el enlace (?v=...), así un navegador que guardó
+    # la versión anterior baja la nueva tras una actualización en lugar de mezclar versiones.
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for nombre in ("app.js", "estilos.css"):
+        version = int((STATIC / nombre).stat().st_mtime)
+        html = html.replace(f"/static/{nombre}\"", f"/static/{nombre}?v={version}\"")
+    return HTMLResponse(html, headers=SIN_CACHE)
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

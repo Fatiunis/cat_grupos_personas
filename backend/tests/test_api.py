@@ -148,3 +148,10 @@ def test_pocos_dias_entre_semana_da_mensaje_claro():
         assert "se necesitan 30" in str(e)
     else:
         raise AssertionError("debía pedir más personas")
+
+
+def test_panel_pide_la_version_nueva_de_sus_archivos():
+    # Un navegador con la versión anterior guardada mezclaba HTML nuevo con JS viejo y el panel quedaba vacío
+    r = cliente.get("/")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-cache"
+    assert "/static/app.js?v=" in r.text and "/static/estilos.css?v=" in r.text
