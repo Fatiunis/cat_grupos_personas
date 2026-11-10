@@ -48,9 +48,11 @@ function grafico(id, config) {
   return estado.graficos[id];
 }
 
-function linea(id, etiquetas, valores, { formato = (v) => fmt(v), max } = {}) {
+function linea(id, etiquetas, valores, { formato = (v) => fmt(v), max, enteros = false } = {}) {
   const op = opcionesBase();
   op.scales.y.ticks.callback = formato;
+  // Conteos de personas: solo marcas enteras (sin 1, 1, 2, 2… al redondear)
+  if (enteros) op.scales.y.ticks.precision = 0;
   if (max != null) op.scales.y.max = max;
   op.plugins.tooltip.callbacks = { label: (c) => formato(c.parsed.y) };
   grafico(id, {
@@ -76,7 +78,7 @@ async function cargarResumen() {
     tile(fmt(r.con_bfi), "Con BFI-2", "cuestionario cargado"),
   ].join("");
   const f = r.serie.map((s) => s.fecha.slice(5));
-  linea("g-personas", f, r.serie.map((s) => s.personas));
+  linea("g-personas", f, r.serie.map((s) => s.personas), { enteros: true });
   linea("g-pantalla", f, r.serie.map((s) => s.pantalla_mediana), { formato: (v) => `${fmt(v)} min` });
   linea("g-respuesta", f, r.serie.map((s) => s.respuesta_diaria), { formato: pct, max: 1 });
   $("#actualizado").textContent = `Actualizado ${new Date().toLocaleTimeString("es")} · se refresca cada 30 s`;
