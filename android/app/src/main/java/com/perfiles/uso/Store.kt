@@ -50,11 +50,31 @@ class Store(private val context: Context) {
     val notificationLog: File get() = File(context.filesDir, "notifications.csv")
     val queueDir: File get() = File(context.filesDir, "queue").apply { mkdirs() }
 
+    /**
+     * Copia local de los resúmenes diarios para la vista de la semana anterior: Android borra
+     * el detalle de uso a los pocos días y la cola se vacía al enviar. Se guardan 35 días.
+     */
+    val historyDir: File get() = File(context.filesDir, "history").apply { mkdirs() }
+
+    fun saveHistory(date: LocalDate, json: org.json.JSONObject) {
+        File(historyDir, "$date.json").writeText(json.toString())
+        val limite = LocalDate.now().minusDays(35)
+        historyDir.listFiles()?.forEach { f ->
+            val d = runCatching { LocalDate.parse(f.nameWithoutExtension) }.getOrNull()
+            if (d == null || d.isBefore(limite)) f.delete()
+        }
+    }
+
+    fun history(date: LocalDate): org.json.JSONObject? =
+        File(historyDir, "$date.json").takeIf { it.exists() }
+            ?.let { runCatching { org.json.JSONObject(it.readText()) }.getOrNull() }
+
     /** Borra todos los datos locales (retiro del estudio). */
     fun wipe() {
         batteryLog.delete()
         notificationLog.delete()
         queueDir.deleteRecursively()
+        historyDir.deleteRecursively()
         prefs.edit().clear().apply()
     }
 }

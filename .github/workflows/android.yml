@@ -36,8 +36,12 @@ jobs:
         run: ./gradlew assembleDebug --no-daemon -PingestUrl="$INGEST_URL" -PingestToken="$INGEST_TOKEN" -Pbfi2Url="$BFI2_URL"
       - uses: actions/upload-artifact@v4
         with:
-          name: perfiles-uso-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: perfiles-uso-semanal-apk
+          path: android/app/build/outputs/apk/semanal/debug/*.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: perfiles-uso-completa-apk
+          path: android/app/build/outputs/apk/completa/debug/*.apk
 
   ml:
     runs-on: ubuntu-latest

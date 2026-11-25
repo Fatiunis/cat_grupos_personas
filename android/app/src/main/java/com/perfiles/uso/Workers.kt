@@ -56,6 +56,7 @@ class DailyWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params) 
             if (now.isBefore(date.plusDays(1).atTime(14, 0))) continue
             val json = DailySummary(applicationContext).build(date)
             File(store.queueDir, "$date.json").writeText(json.toString())
+            store.saveHistory(date, json)
         }
         trimRawLogs(store)
         return if (upload(store)) Result.success() else Result.retry()

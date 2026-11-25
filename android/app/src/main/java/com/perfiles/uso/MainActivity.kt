@@ -589,91 +589,165 @@ class MainActivity : ComponentActivity() {
 
     // ---------- Mis datos ----------
 
+    private enum class Vista { AYER, SEMANA }
+
+    /**
+     * Versión "completa": selector entre el día de ayer y la semana anterior.
+     * Versión "semanal": solo la semana anterior, para no influir en el uso del día a día.
+     */
     @Composable
     private fun DataTab(padding: PaddingValues) {
-        val ctx = this
+        var vista by remember { mutableStateOf(if (BuildConfig.VISTA_DIARIA) Vista.AYER else Vista.SEMANA) }
+        Page(padding) {
+            if (BuildConfig.VISTA_DIARIA) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant, Soft)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    VistaButton("Ayer", vista == Vista.AYER) { vista = Vista.AYER }
+                    VistaButton("Semana anterior", vista == Vista.SEMANA) { vista = Vista.SEMANA }
+                }
+            }
+            when (vista) {
+                Vista.AYER -> DayData()
+                Vista.SEMANA -> WeekData()
+            }
+        }
+    }
+
+    @Composable
+    private fun RowScope.VistaButton(label: String, selected: Boolean, onClick: () -> Unit) {
+        val colors = MaterialTheme.colorScheme
+        Surface(
+            onClick = onClick,
+            modifier = Modifier.weight(1f).height(40.dp),
+            shape = Soft,
+            color = if (selected) colors.surface else Color.Transparent,
+            contentColor = if (selected) colors.onSurface else colors.onSurfaceVariant,
+            shadowElevation = if (selected) 1.dp else 0.dp,
+        ) {
+            Box(contentAlignment = Alignment.Center) { Text(label, style = MaterialTheme.typography.labelLarge) }
+        }
+    }
+
+    @Composable
+    private fun ColumnScope.DayData() {
+        val ctx = this@MainActivity
         var summary by remember { mutableStateOf<JSONObject?>(null) }
         LaunchedEffect(Unit) {
             summary = withContext(Dispatchers.IO) { DailySummary(ctx).build(LocalDate.now().minusDays(1)) }
         }
-        Page(padding) {
-            Muted("Tu día de ayer. Solo estos números salen de tu teléfono.")
-            val s = summary
-            if (s == null) {
-                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                return@Page
-            }
-            val screenMin = s.optDouble("pantalla_min", 0.0)
-            if (screenMin < 1) {
-                Section {
-                    Text("Aún no hay datos de ayer", style = MaterialTheme.typography.titleMedium)
-                    Muted("Revisa que los permisos estén activos en la pestaña Hoy y vuelve mañana.")
-                }
-                return@Page
-            }
-            val first = if (s.isNull("hora_primer_uso")) "–" else clock(s.getDouble("hora_primer_uso"))
-            val last = if (s.isNull("hora_ultimo_uso")) "–" else clock(s.getDouble("hora_ultimo_uso"))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Tile("Pantalla", minutes(screenMin, short = true))
-                Tile("Desbloqueos", "${s.optInt("desbloqueos")}")
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Tile("Primer uso", first)
-                Tile("Último uso", last)
-            }
-            val cats = Categories.ALL.map { it to s.optDouble("${it}_min", 0.0) }
-                .filter { it.second >= 1 }
-                .sortedByDescending { it.second }
-                .take(5)
-            if (cats.isNotEmpty()) {
-                Section("En qué lo usaste") {
-                    Text(
-                        "Toca una para ver qué apps cuenta.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    val top = cats.first().second
-                    var open by remember { mutableStateOf<String?>(null) }
-                    cats.forEachIndexed { i, (c, m) ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { open = if (open == c) null else c }.padding(top = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(CATEGORY_NAMES[c] ?: c, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                            Text(minutes(m), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                            Icon(
-                                if (open == c) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                if (open == c) "Cerrar" else "Ver qué apps cuenta",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 4.dp).size(18.dp),
-                            )
-                        }
-                        Box(Modifier.fillMaxWidth().height(10.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(5.dp))) {
-                            Box(
-                                Modifier.fillMaxWidth((m / top).toFloat()).height(10.dp).background(
-                                    if (i == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
-                                    RoundedCornerShape(5.dp),
-                                )
-                            )
-                        }
-                        if (open == c) {
-                            Text(
-                                CATEGORY_DESC[c] ?: "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Spacer(Modifier.height(2.dp))
-                    }
-                }
-            }
+        Muted("Tu día de ayer. Solo estos números salen de tu teléfono.")
+        SummaryData(summary, semanal = false)
+    }
+
+    @Composable
+    private fun ColumnScope.WeekData() {
+        val ctx = this@MainActivity
+        var loaded by remember { mutableStateOf(false) }
+        var summary by remember { mutableStateOf<JSONObject?>(null) }
+        LaunchedEffect(Unit) {
+            summary = withContext(Dispatchers.IO) { WeeklySummary.average(WeeklySummary.days(ctx)) }
+            loaded = true
+        }
+        val (lunes, domingo) = WeeklySummary.previousWeek(LocalDate.now())
+        val dia = DateTimeFormatter.ofPattern("EEEE d", Locale("es"))
+        val mes = DateTimeFormatter.ofPattern("MMMM", Locale("es"))
+        val rango = if (lunes.month == domingo.month) "${lunes.format(dia)} a ${domingo.format(dia)} de ${domingo.format(mes)}"
+        else "${lunes.format(dia)} de ${lunes.format(mes)} a ${domingo.format(dia)} de ${domingo.format(mes)}"
+        Muted("Tu semana anterior: $rango. Promedio por día; se actualiza cada lunes.")
+        if (!loaded) {
+            Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            return
+        }
+        SummaryData(summary ?: JSONObject(), semanal = true)
+    }
+
+    @Composable
+    private fun ColumnScope.SummaryData(s: JSONObject?, semanal: Boolean) {
+        if (s == null) {
+            Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            return
+        }
+        val screenMin = s.optDouble("pantalla_min", 0.0)
+        if (screenMin < 1) {
             Section {
-                otherFacts(s).forEachIndexed { i, (label, value) ->
-                    if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(label, style = MaterialTheme.typography.bodyLarge)
-                        Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (semanal) "Aún no hay datos de la semana anterior" else "Aún no hay datos de ayer",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Muted(
+                    if (semanal) "Aparecen el lunes después de tu primera semana completa. Revisa que los permisos estén activos en la pestaña Hoy."
+                    else "Revisa que los permisos estén activos en la pestaña Hoy y vuelve mañana."
+                )
+            }
+            return
+        }
+        val first = if (s.isNull("hora_primer_uso")) "–" else clock(s.getDouble("hora_primer_uso"))
+        val last = if (s.isNull("hora_ultimo_uso")) "–" else clock(s.getDouble("hora_ultimo_uso"))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Tile(if (semanal) "Pantalla al día" else "Pantalla", minutes(screenMin, short = true))
+            Tile(if (semanal) "Desbloqueos al día" else "Desbloqueos", "${s.optInt("desbloqueos")}")
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Tile(if (semanal) "Primer uso habitual" else "Primer uso", first)
+            Tile(if (semanal) "Último uso habitual" else "Último uso", last)
+        }
+        val cats = Categories.ALL.map { it to s.optDouble("${it}_min", 0.0) }
+            .filter { it.second >= 1 }
+            .sortedByDescending { it.second }
+            .take(5)
+        if (cats.isNotEmpty()) {
+            Section("En qué lo usaste") {
+                Text(
+                    if (semanal) "Promedio por día. Toca una para ver qué apps cuenta." else "Toca una para ver qué apps cuenta.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                val top = cats.first().second
+                var open by remember { mutableStateOf<String?>(null) }
+                cats.forEachIndexed { i, (c, m) ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { open = if (open == c) null else c }.padding(top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(CATEGORY_NAMES[c] ?: c, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        Text(minutes(m), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                        Icon(
+                            if (open == c) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            if (open == c) "Cerrar" else "Ver qué apps cuenta",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 4.dp).size(18.dp),
+                        )
                     }
+                    Box(Modifier.fillMaxWidth().height(10.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(5.dp))) {
+                        Box(
+                            Modifier.fillMaxWidth((m / top).toFloat()).height(10.dp).background(
+                                if (i == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
+                                RoundedCornerShape(5.dp),
+                            )
+                        )
+                    }
+                    if (open == c) {
+                        Text(
+                            CATEGORY_DESC[c] ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.height(2.dp))
+                }
+            }
+        }
+        Section {
+            otherFacts(s).forEachIndexed { i, (label, value) ->
+                if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(label, style = MaterialTheme.typography.bodyLarge)
+                    Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
