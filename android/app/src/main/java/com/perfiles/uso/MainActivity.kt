@@ -84,7 +84,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             PerfilesTheme {
                 var consent by remember { mutableStateOf(store.consentGiven) }
-                if (!consent) {
+                var left by remember { mutableStateOf(store.left) }
+                if (left) {
+                    ExitScreen(store)
+                } else if (!consent) {
                     ConsentScreen { notifications ->
                         store.consentGiven = true
                         store.consentNotifications = notifications
@@ -93,7 +96,7 @@ class MainActivity : ComponentActivity() {
                         consent = true
                     }
                 } else {
-                    App(store, onWithdraw = { consent = false })
+                    App(store, onLeave = { left = true })
                 }
             }
         }
@@ -130,6 +133,132 @@ class MainActivity : ComponentActivity() {
         counter = if (store.consentNotifications) {
             NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
         } else null,
+    )
+
+    // ---------- Después de salir del estudio ----------
+
+    /**
+     * Android no deja que una app cambie los ajustes de seguridad de otras apps ni Play Protect,
+     * así que cada paso abre el ajuste exacto para que la persona lo cambie.
+     */
+    @Composable
+    private fun ExitScreen(store: Store) {
+        var pending by remember { mutableIntStateOf(store.pendingDays) }
+        LaunchedEffect(resumes) {
+            while (true) {
+                pending = store.pendingDays
+                if (pending == 0) break
+                kotlinx.coroutines.delay(2_000)
+            }
+        }
+        Scaffold(
+            topBar = {
+                TopBar("Perfiles de uso", navigationIcon = { Box(Modifier.padding(start = 12.dp, end = 4.dp)) { Logo() } })
+            },
+            containerColor = MaterialTheme.colorScheme.background,
+        ) { padding ->
+            Page(padding) {
+                Surface(
+                    color = if (pending == 0) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (pending == 0) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                    shape = Soft,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (pending == 0) Icon(Icons.Default.Check, null, modifier = Modifier.size(18.dp))
+                        else CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text(
+                            if (pending == 0) "Saliste del estudio. La app ya no registra nada."
+                            else "Saliste del estudio. Enviando tus últimos días…",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                    }
+                }
+                Section("Deja tu teléfono como estaba") {
+                    Muted("Android no deja que una app cambie estos ajustes sola. Cada botón te lleva directo al lugar.")
+                    ExitStep(
+                        1, "Quitar a WhatsApp el permiso de instalar apps",
+                        "Lo activaste para instalar esta app desde WhatsApp. Apágalo en \"Permitir de esta fuente\".",
+                    ) {
+                        Button(onClick = ::openWhatsAppInstallSetting, shape = Soft) { Text("Abrir ajuste de WhatsApp") }
+                        OutlinedButton(onClick = ::openInstallSources, shape = Soft) { Text("Ver otras apps") }
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    ExitStep(
+                        2, "Volver a activar Play Protect",
+                        "Si lo pausaste al instalar, enciende \"Analizar apps con Play Protect\".",
+                    ) {
+                        Button(onClick = ::openPlayProtect, shape = Soft) { Text("Abrir Play Protect") }
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    ExitStep(
+                        3, "Desinstalar Perfiles de uso",
+                        "Al desinstalarla se quitan solos el acceso a uso, el permiso de funcionar de noche (batería) y el de notificaciones.",
+                    ) {
+                        Button(onClick = ::uninstallSelf, enabled = pending == 0, shape = Soft) { Text("Desinstalar") }
+                        if (pending > 0) Muted("Se activa cuando terminen de enviarse tus últimos días. Necesita internet.")
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun ExitStep(n: Int, title: String, detail: String, actions: @Composable ColumnScope.() -> Unit) {
+        Row(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(
+                Modifier.size(28.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("$n", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(title, style = MaterialTheme.typography.titleSmall)
+                Muted(detail)
+                actions()
+            }
+        }
+    }
+
+    private fun installed(pkg: String) =
+        runCatching { packageManager.getPackageInfo(pkg, 0) }.isSuccess
+
+    private fun tryStart(vararg intents: Intent) {
+        for (i in intents) {
+            try {
+                startActivity(i)
+                return
+            } catch (e: Exception) {
+                // ActivityNotFound o SecurityException: se prueba la siguiente opción
+            }
+        }
+    }
+
+    /** "Instalar apps desconocidas" de WhatsApp (o WhatsApp Business); si no está, la lista completa. */
+    private fun openWhatsAppInstallSetting() {
+        val pkg = listOf("com.whatsapp", "com.whatsapp.w4b").firstOrNull(::installed)
+        if (pkg == null) openInstallSources()
+        else tryStart(
+            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$pkg")),
+            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES),
+        )
+    }
+
+    private fun openInstallSources() = tryStart(
+        Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES),
+        Intent(Settings.ACTION_SECURITY_SETTINGS),
+    )
+
+    /** Ajustes de Play Protect; si el teléfono no los expone, se abre Play Store (menú del perfil › Play Protect). */
+    private fun openPlayProtect() = tryStart(
+        Intent().setClassName("com.google.android.gms", "com.google.android.gms.security.settings.VerifyAppsSettingsActivity"),
+        Intent("com.google.android.gms.settings.VERIFY_APPS_SETTINGS"),
+        packageManager.getLaunchIntentForPackage("com.android.vending") ?: Intent(Settings.ACTION_SECURITY_SETTINGS),
+    )
+
+    private fun uninstallSelf() = tryStart(
+        Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName")),
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")),
     )
 
     // ---------- Piezas comunes ----------
@@ -279,7 +408,7 @@ class MainActivity : ComponentActivity() {
                     Bullet("Usar tu teléfono como siempre")
                     Muted(
                         "Te identificas con un código al azar, no con tu nombre. " +
-                            "Puedes pausar o retirarte cuando quieras y tus datos se borran."
+                            "Puedes pausar o salir del estudio cuando quieras; lo que ya se envió se conserva para el estudio."
                     )
                 }
                 Section {
@@ -312,7 +441,7 @@ class MainActivity : ComponentActivity() {
     // ---------- App con pestañas ----------
 
     @Composable
-    private fun App(store: Store, onWithdraw: () -> Unit) {
+    private fun App(store: Store, onLeave: () -> Unit) {
         var tab by remember { mutableStateOf(Tab.HOY) }
         val permisos = remember(resumes) { readPermisos(store) }
         var paused by remember { mutableStateOf(store.paused) }
@@ -368,7 +497,7 @@ class MainActivity : ComponentActivity() {
                     padding, store, permisos, paused,
                     onPause = { paused = it; store.paused = it },
                     onShowPermisos = { tab = Tab.PERMISOS },
-                    onWithdraw = onWithdraw,
+                    onLeave = onLeave,
                 )
                 Tab.PERMISOS -> PermisosTab(padding, permisos)
             }
@@ -801,9 +930,9 @@ class MainActivity : ComponentActivity() {
         paused: Boolean,
         onPause: (Boolean) -> Unit,
         onShowPermisos: () -> Unit,
-        onWithdraw: () -> Unit,
+        onLeave: () -> Unit,
     ) {
-        var confirmWithdraw by remember { mutableStateOf(false) }
+        var confirmLeave by remember { mutableStateOf(false) }
         Page(padding) {
             Section("Tu participación") {
                 Muted("Tu código de participante")
@@ -831,14 +960,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
             Section("Salir del estudio") {
-                Muted("Se detiene la app y se borran tus datos del teléfono y del servidor.")
+                Muted("La app deja de registrar. Lo que ya se envió se conserva para el estudio.")
                 OutlinedButton(
-                    onClick = { confirmWithdraw = true },
+                    onClick = { confirmLeave = true },
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     shape = Soft,
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
-                ) { Text("Retirarme del estudio") }
+                ) { Text("Salir del estudio") }
             }
             Text(
                 "Versión ${BuildConfig.VERSION_NAME}",
@@ -849,23 +978,28 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        if (confirmWithdraw) {
+        if (confirmLeave) {
             AlertDialog(
-                onDismissRequest = { confirmWithdraw = false },
-                title = { Text("¿Retirarte del estudio?") },
-                text = { Text("La app deja de registrar y se borran tus datos de este teléfono y del servidor. No se puede deshacer.") },
+                onDismissRequest = { confirmLeave = false },
+                title = { Text("¿Salir del estudio?") },
+                text = {
+                    Text(
+                        "La app deja de registrar desde ahora. Los datos que ya enviaste se conservan para el estudio.\n\n" +
+                            "Después te guiamos para volver a activar la protección que desactivaste al instalarla."
+                    )
+                },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            confirmWithdraw = false
-                            Scheduler.withdraw(this, store.participantId)
-                            store.wipe()
-                            onWithdraw()
+                            confirmLeave = false
+                            store.left = true
+                            Scheduler.leave(this)
+                            onLeave()
                         },
                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    ) { Text("Sí, retirarme") }
+                    ) { Text("Sí, salir") }
                 },
-                dismissButton = { TextButton(onClick = { confirmWithdraw = false }) { Text("Cancelar") } },
+                dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("Cancelar") } },
             )
         }
     }

@@ -26,6 +26,11 @@ class Store(private val context: Context) {
         get() = prefs.getBoolean("paused", false)
         set(v) = prefs.edit().putBoolean("paused", v).apply()
 
+    /** Salió del estudio: la app deja de registrar, pero lo ya enviado se conserva en el servidor. */
+    var left: Boolean
+        get() = prefs.getBoolean("left", false)
+        set(v) = prefs.edit().putBoolean("left", v).apply()
+
     var bfi2Done: Boolean
         get() = prefs.getBoolean("bfi2_done", false)
         set(v) = prefs.edit().putBoolean("bfi2_done", v).apply()
@@ -69,12 +74,14 @@ class Store(private val context: Context) {
         File(historyDir, "$date.json").takeIf { it.exists() }
             ?.let { runCatching { org.json.JSONObject(it.readText()) }.getOrNull() }
 
-    /** Borra todos los datos locales (retiro del estudio). */
-    fun wipe() {
+    /** Al salir, después de enviar lo pendiente: borra los registros del teléfono (no los del servidor). */
+    fun clearLocalLogs() {
         batteryLog.delete()
         notificationLog.delete()
         queueDir.deleteRecursively()
         historyDir.deleteRecursively()
-        prefs.edit().clear().apply()
     }
+
+    /** Días armados que aún no llegan al servidor. */
+    val pendingDays: Int get() = queueDir.listFiles()?.size ?: 0
 }

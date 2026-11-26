@@ -131,7 +131,7 @@ def test_reenvios_simultaneos():
 
 
 def retiro(pid, token=TOKEN):
-    """Lo que hace WithdrawWorker: DELETE <INGEST_URL sin /ingest>/participantes/<id>."""
+    """Borrado a pedido de la persona (lo hace el equipo): DELETE <INGEST_URL sin /ingest>/participantes/<id>."""
     base = INGEST.rstrip("/").removesuffix("/ingest")
     h = {"Authorization": f"Bearer {token}"} if token else {}
     return requests.delete(f"{base}/participantes/{pid}", headers=h, timeout=30)

@@ -46,6 +46,12 @@ class BatteryWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params
 class DailyWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params) {
     override fun doWork(): Result {
         val store = Store(applicationContext)
+        if (store.left) {
+            // Salió del estudio: solo se envían los días que ya estaban armados y se limpia el teléfono
+            if (!upload(store)) return Result.retry()
+            store.clearLocalLogs()
+            return Result.success()
+        }
         if (!store.consentGiven || store.paused) return Result.success()
         val today = LocalDate.now()
         val now = LocalDateTime.now()
@@ -72,7 +78,7 @@ class DailyWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params) 
     }
 
     private fun upload(store: Store): Boolean {
-        if (BuildConfig.INGEST_URL.isEmpty()) return true // modo solo local
+        if (BuildConfig.INGEST_URL.isEmpty()) return true // modo solo local: la cola no sale del teléfono
         var ok = true
         store.queueDir.listFiles()?.sortedBy { it.name }?.forEach { f ->
             try {
@@ -103,32 +109,6 @@ class DailyWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params) 
  * Pide al servidor borrar los datos: DELETE <base>/participantes/<id>, donde <base> es
  * INGEST_URL sin "/ingest". Reintenta hasta que el servidor responda 2xx o 404.
  */
-class WithdrawWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params) {
-    override fun doWork(): Result {
-        if (BuildConfig.INGEST_URL.isEmpty()) return Result.success()
-        val id = inputData.getString("participante_id") ?: return Result.success()
-        return try {
-            val base = BuildConfig.INGEST_URL.removeSuffix("/").removeSuffix("/ingest")
-            val conn = URL("$base/participantes/$id").openConnection() as HttpURLConnection
-            conn.connectTimeout = 15_000
-            conn.readTimeout = 15_000
-            conn.requestMethod = "DELETE"
-            if (BuildConfig.INGEST_TOKEN.isNotEmpty()) {
-                conn.setRequestProperty("Authorization", "Bearer ${BuildConfig.INGEST_TOKEN}")
-            }
-            val code = conn.responseCode
-            conn.disconnect()
-            when {
-                code in 200..299 || code == 404 -> Result.success()
-                code == 401 || code == 403 -> Result.failure() // token inválido: reintentar no sirve
-                else -> Result.retry()
-            }
-        } catch (e: Exception) {
-            Result.retry()
-        }
-    }
-}
-
 /** Recordatorio diario a las 21:00 para responder la pregunta del día. */
 class ReminderWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params) {
     override fun doWork(): Result {
@@ -180,12 +160,15 @@ object Scheduler {
 
     fun stop(context: Context) = WorkManager.getInstance(context).cancelAllWork()
 
-    /** Cancela la recolección y pide al servidor que borre los datos de la persona. */
-    fun withdraw(context: Context, participantId: String) {
+    /**
+     * Salir del estudio: deja de registrar y envía los días que ya estaban armados.
+     * Los datos en el servidor se conservan; si alguien pide borrarlos, lo hace el equipo.
+     */
+    fun leave(context: Context) {
         stop(context)
-        WorkManager.getInstance(context).enqueue(
-            OneTimeWorkRequestBuilder<WithdrawWorker>()
-                .setInputData(workDataOf("participante_id" to participantId))
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "salida", ExistingWorkPolicy.REPLACE,
+            OneTimeWorkRequestBuilder<DailyWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build(),
         )
