@@ -178,10 +178,10 @@ class MainActivity : ComponentActivity() {
                     Muted("Android no deja que una app cambie estos ajustes sola. Cada botón te lleva directo al lugar.")
                     ExitStep(
                         1, "Quitar a WhatsApp el permiso de instalar apps",
-                        "Lo activaste para instalar esta app desde WhatsApp. Apágalo en \"Permitir de esta fuente\".",
+                        "Lo activaste para instalar esta app desde WhatsApp o desde el navegador (si usaste el QR). Apágalo en \"Permitir de esta fuente\".",
                     ) {
                         Button(onClick = ::openWhatsAppInstallSetting, shape = Soft) { Text("Abrir ajuste de WhatsApp") }
-                        OutlinedButton(onClick = ::openInstallSources, shape = Soft) { Text("Ver otras apps") }
+                        OutlinedButton(onClick = ::openInstallSources, shape = Soft) { Text("Ver otras apps (Chrome, Archivos)") }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     ExitStep(
