@@ -6,10 +6,10 @@ Trabajo académico: recolectar métricas agregadas de uso del teléfono (con con
 
 Prototipo de la APK en Kotlin (minSdk 28, Jetpack Compose, WorkManager).
 
-- Consentimiento con casilla opcional para contar notificaciones, guía de permisos (acceso a datos de uso, batería, notificaciones), pregunta diaria (cumplimiento del plan 1-5 y puntualidad) con recordatorio a las 21:00, vista de lo que se envía, pausa y retiro con borrado.
+- Consentimiento con casilla opcional para contar notificaciones, guía de permisos (acceso a datos de uso, batería, notificaciones), pregunta diaria (cumplimiento del plan 1-5 y puntualidad) con recordatorio a las 21:00, vista de lo que se envía, pausa y salida del estudio.
 - `DailySummary.kt` resume cada día en el teléfono: pantalla, desbloqueos, sesiones, horarios, uso nocturno, inicio de sueño, minutos por categoría, batería, cargas, red, apps, almacenamiento, bloqueo y parche de seguridad.
 - Un día va de 05:00 a 05:00 y las horas son continuas desde la medianoche (25.5 = 01:30 del día siguiente). El inicio de sueño se busca entre las 18:00 y las 14:00 del día siguiente, por eso cada día se envía después de las 15:00 del día siguiente.
-- Al retirarse, la app borra lo local y envía `DELETE <base>/participantes/<id>` al servidor.
+- Al salir del estudio, la app deja de registrar, envía los días pendientes y borra lo local; los datos del servidor se conservan y se publican en este repositorio tal como están guardados, para que otros puedan recrear el estudio. Después muestra botones para quitar a WhatsApp el permiso de instalar apps, volver a activar Play Protect y desinstalar.
 - `INGEST_URL` e `INGEST_TOKEN` se pasan al compilar (`-PingestUrl=... -PingestToken=...`); en CI salen de los secretos del repositorio con esos nombres.
 - `BatteryWorker` toma una muestra cada 15 min; `DailyWorker` arma los resúmenes pendientes y los envía a `INGEST_URL` (vacío = solo local).
 - Pendiente para la v2: pasos y lugares distintos (ubicación aproximada), y el backend de ingesta.
@@ -38,7 +38,7 @@ Con 1.500 personas y dos semillas distintas, el pipeline recupera los arquetipos
 
 API FastAPI y dashboard web. Recibe los resúmenes diarios de la APK, guarda los datos y corre el pipeline de `ml/` desde la interfaz.
 
-- `DELETE /participantes/<id>` (mismo token): la APK lo llama al retirarse la persona; borra sus datos y responde 204.
+- `DELETE /participantes/<id>` (mismo token): borra los datos de una persona y responde 204. La APK ya no lo llama: al salir del estudio solo deja de registrar y los datos enviados se conservan; si alguien pide que se borren, el equipo usa este endpoint.
 - `POST /ingest`: un objeto (o una lista) por persona y día, igual al JSON de `DailySummary.kt`. Un reenvío del mismo día lo reemplaza. Si `INGEST_TOKEN` está definido, exige `Authorization: Bearer <token>`.
 - Dashboard en `/`, con cuatro vistas:
   - **Resumen**: recolección en vivo, se refresca cada 30 s.

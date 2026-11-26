@@ -26,6 +26,11 @@ class Store(private val context: Context) {
         get() = prefs.getBoolean("paused", false)
         set(v) = prefs.edit().putBoolean("paused", v).apply()
 
+    /** Salió del estudio: la app deja de registrar, pero lo ya enviado se conserva en el servidor. */
+    var left: Boolean
+        get() = prefs.getBoolean("left", false)
+        set(v) = prefs.edit().putBoolean("left", v).apply()
+
     var bfi2Done: Boolean
         get() = prefs.getBoolean("bfi2_done", false)
         set(v) = prefs.edit().putBoolean("bfi2_done", v).apply()
@@ -50,11 +55,33 @@ class Store(private val context: Context) {
     val notificationLog: File get() = File(context.filesDir, "notifications.csv")
     val queueDir: File get() = File(context.filesDir, "queue").apply { mkdirs() }
 
-    /** Borra todos los datos locales (retiro del estudio). */
-    fun wipe() {
+    /**
+     * Copia local de los resúmenes diarios para la vista de la semana anterior: Android borra
+     * el detalle de uso a los pocos días y la cola se vacía al enviar. Se guardan 35 días.
+     */
+    val historyDir: File get() = File(context.filesDir, "history").apply { mkdirs() }
+
+    fun saveHistory(date: LocalDate, json: org.json.JSONObject) {
+        File(historyDir, "$date.json").writeText(json.toString())
+        val limite = LocalDate.now().minusDays(35)
+        historyDir.listFiles()?.forEach { f ->
+            val d = runCatching { LocalDate.parse(f.nameWithoutExtension) }.getOrNull()
+            if (d == null || d.isBefore(limite)) f.delete()
+        }
+    }
+
+    fun history(date: LocalDate): org.json.JSONObject? =
+        File(historyDir, "$date.json").takeIf { it.exists() }
+            ?.let { runCatching { org.json.JSONObject(it.readText()) }.getOrNull() }
+
+    /** Al salir, después de enviar lo pendiente: borra los registros del teléfono (no los del servidor). */
+    fun clearLocalLogs() {
         batteryLog.delete()
         notificationLog.delete()
         queueDir.deleteRecursively()
-        prefs.edit().clear().apply()
+        historyDir.deleteRecursively()
     }
+
+    /** Días armados que aún no llegan al servidor. */
+    val pendingDays: Int get() = queueDir.listFiles()?.size ?: 0
 }

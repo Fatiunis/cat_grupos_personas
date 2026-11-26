@@ -24,6 +24,25 @@ android {
         buildConfigField("String", "BFI2_URL", "\"${project.findProperty("bfi2Url") ?: ""}\"")
     }
 
+    // Dos versiones de la app que solo cambian la pestaña "Mis datos":
+    //  - semanal: muestra solo el promedio de la semana anterior, para no influir en el uso diario
+    //  - completa: deja elegir entre el día de ayer y la semana anterior
+    // Comparten applicationId y firma, así que cualquiera se instala encima de la otra.
+    // La versión viaja en version_app (p. ej. 0.2.40-semanal) para saber cuál tenía cada persona.
+    flavorDimensions += "vista"
+    productFlavors {
+        create("semanal") {
+            dimension = "vista"
+            versionNameSuffix = "-semanal"
+            buildConfigField("boolean", "VISTA_DIARIA", "false")
+        }
+        create("completa") {
+            dimension = "vista"
+            versionNameSuffix = "-completa"
+            buildConfigField("boolean", "VISTA_DIARIA", "true")
+        }
+    }
+
     // Llave fija: sin ella cada compilación sale firmada distinto y Android no deja actualizar encima.
     // El workflow la toma de los secrets ANDROID_KEYSTORE_B64 y ANDROID_KEYSTORE_PASSWORD.
     val keystore = System.getenv("ANDROID_KEYSTORE_PATH")?.let { file(it) }?.takeIf { it.exists() }
