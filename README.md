@@ -16,6 +16,11 @@ Prototipo de la APK en Kotlin (minSdk 28, Jetpack Compose, WorkManager).
 
 La APK la compila GitHub Actions (`.github/workflows/android.yml`) y queda como artefacto descargable del flujo.
 
+Cada cambio en `main` deja además las dos versiones con enlace fijo en la versión `app` de Releases, para instalar con un QR:
+
+- Semanal (solo la semana anterior): https://github.com/Fatiunis/cat_grupos_personas/releases/download/app/perfiles-uso-semanal.apk
+- Completa (ayer y semana anterior): https://github.com/Fatiunis/cat_grupos_personas/releases/download/app/perfiles-uso-completa.apk
+
 ## ml/
 
 - `synthetic.py`: genera datos diarios sintéticos con 6 arquetipos y una etiqueta BFI-2 sintética.

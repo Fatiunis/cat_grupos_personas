@@ -176,12 +176,24 @@ class MainActivity : ComponentActivity() {
                 }
                 Section("Deja tu teléfono como estaba") {
                     Muted("Android no deja que una app cambie estos ajustes sola. Cada botón te lleva directo al lugar.")
-                    ExitStep(
-                        1, "Quitar a WhatsApp el permiso de instalar apps",
-                        "Lo activaste para instalar esta app desde WhatsApp. Apágalo en \"Permitir de esta fuente\".",
-                    ) {
-                        Button(onClick = ::openWhatsAppInstallSetting, shape = Soft) { Text("Abrir ajuste de WhatsApp") }
-                        OutlinedButton(onClick = ::openInstallSources, shape = Soft) { Text("Ver otras apps") }
+                    val source = remember { installSource() }
+                    if (source != null) {
+                        val (pkg, app) = source
+                        ExitStep(
+                            1, "Quitar a $app el permiso de instalar apps",
+                            "Instalaste esta app desde $app y para eso le diste permiso de instalar apps. Apágalo en \"Permitir de esta fuente\".",
+                        ) {
+                            Button(onClick = { openInstallSetting(pkg) }, shape = Soft) { Text("Abrir ajuste de $app") }
+                            OutlinedButton(onClick = ::openInstallSources, shape = Soft) { Text("Ver otras apps") }
+                        }
+                    } else {
+                        ExitStep(
+                            1, "Quitar el permiso de instalar apps",
+                            "Lo activaste en la app desde donde instalaste esta (WhatsApp, el navegador si usaste el QR, o Archivos). Apágalo en \"Permitir de esta fuente\".",
+                        ) {
+                            Button(onClick = ::openWhatsAppInstallSetting, shape = Soft) { Text("Abrir ajuste de WhatsApp") }
+                            OutlinedButton(onClick = ::openInstallSources, shape = Soft) { Text("Ver otras apps (Chrome, Archivos)") }
+                        }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     ExitStep(
@@ -234,14 +246,33 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * App que hizo la instalación (WhatsApp, Chrome, Archivos…), según Android 11 o más nuevo.
+     * Si se actualizó desde otra app, Android guarda la última.
+     */
+    private fun installSource(): Pair<String, String>? {
+        if (Build.VERSION.SDK_INT < 30) return null
+        val pkg = runCatching { packageManager.getInstallSourceInfo(packageName).initiatingPackageName }.getOrNull()
+            ?: return null
+        val sistema = setOf(
+            packageName, "com.android.vending", "com.android.shell",
+            "com.google.android.packageinstaller", "com.android.packageinstaller",
+        )
+        if (pkg in sistema) return null
+        val app = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }
+            .getOrNull() ?: return null
+        return pkg to app
+    }
+
+    private fun openInstallSetting(pkg: String) = tryStart(
+        Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$pkg")),
+        Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES),
+    )
+
     /** "Instalar apps desconocidas" de WhatsApp (o WhatsApp Business); si no está, la lista completa. */
     private fun openWhatsAppInstallSetting() {
         val pkg = listOf("com.whatsapp", "com.whatsapp.w4b").firstOrNull(::installed)
-        if (pkg == null) openInstallSources()
-        else tryStart(
-            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$pkg")),
-            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES),
-        )
+        if (pkg == null) openInstallSources() else openInstallSetting(pkg)
     }
 
     private fun openInstallSources() = tryStart(

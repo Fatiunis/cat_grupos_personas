@@ -8,6 +8,8 @@ on:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: android
@@ -34,6 +36,18 @@ jobs:
           BFI2_URL: ${{ secrets.BFI2_URL }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: ./gradlew assembleDebug --no-daemon -PingestUrl="$INGEST_URL" -PingestToken="$INGEST_TOKEN" -Pbfi2Url="$BFI2_URL"
+      # Enlace fijo para el QR de instalación: cada cambio en main reemplaza las APK de la versión "app".
+      # https://github.com/<repo>/releases/download/app/perfiles-uso-semanal.apk
+      - name: Publicar APK para descarga directa
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.ANDROID_KEYSTORE_PATH != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/semanal/debug/*.apk perfiles-uso-semanal.apk
+          cp app/build/outputs/apk/completa/debug/*.apk perfiles-uso-completa.apk
+          gh release view app >/dev/null 2>&1 || gh release create app --title "App para participantes" \
+            --notes "Descarga directa de la app. Se actualiza sola con cada cambio en main. perfiles-uso-semanal.apk muestra solo la semana anterior; perfiles-uso-completa.apk muestra ayer y la semana anterior."
+          gh release upload app perfiles-uso-semanal.apk perfiles-uso-completa.apk --clobber
       - uses: actions/upload-artifact@v4
         with:
           name: perfiles-uso-semanal-apk
