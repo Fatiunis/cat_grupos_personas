@@ -408,7 +408,9 @@ class MainActivity : ComponentActivity() {
                     Bullet("Usar tu teléfono como siempre")
                     Muted(
                         "Te identificas con un código al azar, no con tu nombre. " +
-                            "Puedes pausar o salir del estudio cuando quieras; lo que ya se envió se conserva para el estudio."
+                            "Puedes pausar o salir del estudio cuando quieras. Lo que envías se guarda y se publica tal como está " +
+                            "(con tu código, las fechas y el modelo de tu teléfono, nunca tu nombre) en el repositorio público del estudio, " +
+                            "para que otras personas puedan repetirlo."
                     )
                 }
                 Section {
@@ -960,7 +962,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             Section("Salir del estudio") {
-                Muted("La app deja de registrar. Lo que ya se envió se conserva para el estudio.")
+                Muted("La app deja de registrar. Lo que ya se envió se conserva y se publica con los datos del estudio.")
                 OutlinedButton(
                     onClick = { confirmLeave = true },
                     modifier = Modifier.fillMaxWidth().height(48.dp),
@@ -984,7 +986,7 @@ class MainActivity : ComponentActivity() {
                 title = { Text("¿Salir del estudio?") },
                 text = {
                     Text(
-                        "La app deja de registrar desde ahora. Los datos que ya enviaste se conservan para el estudio.\n\n" +
+                        "La app deja de registrar desde ahora. Los datos que ya enviaste se conservan y se publican con los datos del estudio.\n\n" +
                             "Después te guiamos para volver a activar la protección que desactivaste al instalarla."
                     )
                 },
